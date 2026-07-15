@@ -122,12 +122,6 @@
   <canvas id="game" width="960" height="540" tabindex="0"></canvas>
 </div>
 
-<div class="toolbar">
-  <button type="button" id="btnRestart">Recommencer</button>
-  <button type="button" id="btnPause">Pause</button>
-  <button type="button" id="btnMute">Son : ON</button>
-</div>
-
 <div id="aidePanel">
 <button type="button" id="aideClose">&#10005; FERMER</button>
 <div class="help">
@@ -868,8 +862,8 @@ Fighter.prototype.canAct = function(){
 
 Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (this.dead) return false;
-  var otg = this.state==='down' && arguments.length > 5 && arguments[5];
-  if (this.state==='down'){ if (!otg) return false; }
+  var otg = (this.state==='down' || this.state==='cuffed') && arguments.length > 5 && arguments[5];
+  if (this.state==='down' || this.state==='cuffed'){ if (!otg) return false; }
   else if (this.state==='fall' || this.state==='getup') return false;
   if (this.state==='dodge') return false; // esquive : invulnerable
   if (this.isPlayer && this.invulnT > 0) return false; // releve : invulnerable
@@ -949,7 +943,9 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (!blocked){
     SFX.hit();
     this.chainT = 0;
-    if (otg && this.state==='down'){
+    if (otg && this.state==='cuffed'){
+      /* il encaisse, menotte : pas de changement d etat */
+    } else if (otg && this.state==='down'){
       this.stateT = Math.min(this.stateT, 0.3);   // reste plaque un peu plus
     } else if (knockdown){
       this.setState('fall');
@@ -1134,11 +1130,12 @@ var ATTACKS = {
 };
 
 /* adversaire au sol le plus proche (pour le coup de pied et le menottage) */
-function nearestDowned(f){
+function nearestDowned(f, avecCuffed){
   var best = null, bd = 1e9;
   for (var i=0;i<game.fighters.length;i++){
     var t = game.fighters[i];
-    if (t.isPlayer === f.isPlayer || t.dead || t.state !== 'down' || t.boss) continue;
+    if (t.isPlayer === f.isPlayer || t.dead || t.boss) continue;
+    if (t.state !== 'down' && !(avecCuffed && t.state === 'cuffed')) continue;
     var dx = Math.abs(t.x - f.x), dz = Math.abs(t.z - f.z);
     if (dx < 18 && dz < 12 && dx + dz < bd){ bd = dx + dz; best = t; }
   }
@@ -1452,7 +1449,7 @@ Fighter.prototype.update = function(dt){
         this.setState('idle');
         break;
       }
-      ct.stateT = Math.min(ct.stateT, 0.1);   // il reste plaque le temps du menottage
+      if (ct.state === 'down') ct.stateT = Math.min(ct.stateT, 0.1);   // il reste plaque le temps du menottage
       this.dir = ct.x >= this.x ? 1 : -1;
       if (Math.random() < 0.25){
         game.particles.push({ x: ct.x + rnd(-4,4), z: ct.z, y: rnd(2,8),
@@ -1467,12 +1464,30 @@ Fighter.prototype.update = function(dt){
         game.particles.push({ star:true, x:ct.x, z:ct.z, y:10, t:0.2, r:7, col:'#7ec8ff' });
         addParticles(ct.x, ct.z, 12, 8, '#7ec8ff', 60);
         SFX.pickup();
-        ct.dead = true; ct.remove = true;
+        ct.setState('cuffed');          // il reste a plat ventre, menotte
+        ct.cuffedT = 6.0;
+        ct.beaten = false;
         this.cuffTarget = null;
         this.setState('idle');
       }
       break;
     }
+
+    case 'cuffed':
+      this.cuffedT -= dt;
+      this.vx = 0;
+      if (this.cuffedT <= 0){
+        if (!this.beaten){
+          game.honneur = Math.min(10, (game.honneur || 0) + 1);
+          addFloater(this.x, this.screenY()-52, 'EVACUE \u00B7 HONORABLE +1', '#7ec8ff');
+          game.particles.push({ star:true, x:this.x, z:this.z, y:8, t:0.18, r:6, col:'#7ec8ff' });
+        } else {
+          addFloater(this.x, this.screenY()-50, 'EVACUE...', '#8b96ad');
+        }
+        addParticles(this.x, this.z, 12, 6, '#7ec8ff', 50);
+        this.dead = true; this.remove = true;
+      }
+      break;
 
     case 'hitstun':
       this.x += this.vx * dt; this.vx *= 0.8;
@@ -1534,8 +1549,8 @@ Fighter.prototype.tryHit = function(sp){
   for (var i=0;i<list.length;i++){
     var t = list[i];
     if (t === this || t.dead || t.isPlayer === this.isPlayer) continue;
-    if (t.state==='down' || t.state==='fall' || t.state==='getup'){
-      if (!(this.attackKind==='stomp' && t.state==='down')) continue;
+    if (t.state==='down' || t.state==='fall' || t.state==='getup' || t.state==='cuffed'){
+      if (!(this.attackKind==='stomp' && (t.state==='down' || t.state==='cuffed'))) continue;
     }
     var dx = (t.x - this.x) * this.dir;
     if (dx < 2 || dx > sp.range + 8) continue;
@@ -1573,8 +1588,14 @@ Fighter.prototype.tryHit = function(sp){
     var kdF = sp.kd;
     var taser = this.isPlayer && this.charId === 'crs' && game.loadout.matraque === 1 && this.attackKind === 'punch3' && !t.boss;
     if (taser) kdF = false;
-    var otgHit = this.attackKind === 'stomp' && t.state === 'down';
+    var otgHit = this.attackKind === 'stomp' && (t.state === 'down' || t.state === 'cuffed');
+    var etaitCuffed = t.state === 'cuffed';
     t.hurt(dmg, sp.kb * (this.isPlayer && this.up ? 1 + this.up.kb : 1), this.dir, kdF, this.isPlayer ? 'player' : 'enemy', otgHit);
+    if (this.isPlayer && etaitCuffed && otgHit){
+      t.beaten = true;
+      game.ripou = Math.min(10, (game.ripou || 0) + 1);
+      addFloater(t.x, t.screenY()-58, 'RIPOU +1', '#ff6b5e');
+    }
     impactFX(t.x - this.dir*4, t.z, otgHit ? 5 : 18, kdF, this.isPlayer ? '#ffd166' : '#ff8a6b');
     if (this.attackKind === 'pommeau3' && !t.dead && t.state === 'hitstun' && !t.boss){
       t.stateT = -0.35;
@@ -1743,7 +1764,7 @@ Fighter.prototype.playerAttack = function(){
   if (special && this.trySpecial(special)) return;
 
   // 1bis) un adversaire est a terre : coup de pied
-  var dwn = nearestDowned(this);
+  var dwn = nearestDowned(this, true);
   if (dwn){
     this.dir = dwn.x >= this.x ? 1 : -1;
     this.startAttack('stomp');
@@ -2858,6 +2879,7 @@ function resetGame(){
   game.zone = 0; game.goMode = false; game.fadeT = 0;
   game.bossSpawned = false; game.victoryT = 0;
   game.event = null; game.heliX = 0; game.spotX = 0; game.heliSndT = 0;
+  game.ripou = 0; game.honneur = 0;
   game.barriers = []; game.graffitis = [];
   var cdef = CHARS[game.selChar] || CHARS[0];
   var cpal = cdef.id==='ministre' ? PAL_MIN : (cdef.id==='k9' ? PAL_K9 : (cdef.id==='croise' ? PAL_CRO : PAL_CRS));
@@ -3176,7 +3198,13 @@ function update(dt){
   if (game.waveBannerT > 0) game.waveBannerT -= dt;
   if (game.victoryT > 0){
     game.victoryT -= dt;
-    if (game.victoryT <= 0){ game.state = 'victory'; SFX.wave(); SFX.heal(); }
+    if (game.victoryT <= 0){
+      game.state = 'victory';
+      var rOK = (game.ripou || 0) >= 10, hOK = (game.honneur || 0) >= 10;
+      game.finKind = rOK && hOK ? 'demolition' : (rOK ? 'ripou' : (hOK ? 'honneur' : 'routine'));
+      game.finT0 = game.time;
+      SFX.wave(); SFX.heal();
+    }
   }
 
   // sortie de zone : on marche vers la droite, fondu, zone suivante
@@ -3213,7 +3241,7 @@ function update(dt){
     }
   } else {
     var alive = 0;
-    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead) alive++;
+    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed') alive++;
     if (alive===0 && game.waveBannerT<=0 && !game.goMode && game.fadeT<=0 && !(game.victoryT>0) && game.state==='play') openLevelup(game.wave+1);
   }
 
@@ -3457,7 +3485,7 @@ function drawShadow(g, sx, sy, w){
 function computePose(f){
   var t = f.animT, st = f.state;
   var o = { bob:0, legF:0, legB:0, lean:0, armF:'down', armB:'down',
-            shieldFront:false, lying:(st==='fall'||st==='down') };
+            shieldFront:false, lying:(st==='fall'||st==='down'||st==='cuffed') };
   var isCRS = f.kind==='crs';
   if (st==='idle'){ o.bob = Math.sin(t*3)*0.8; }
   if (st==='walk'){ var c=Math.sin(t*9); o.legF=c*3.2; o.legB=-c*3.2; o.bob=Math.abs(c); o.armF=c>0?'fwd0':'down'; }
@@ -5058,6 +5086,22 @@ function drawFighter(g, f){
   }
   if (f.flashT > 0 && Math.floor(f.flashT*40)%2===0) g.globalAlpha = 0.55;
   if (f.invulnT > 0 && Math.floor(game.time*14)%2===0) g.globalAlpha = 0.45;
+  // lueur chaude des feux proches (braseros de zone + nappes)
+  var fireGlow = 0, fireDir = 1;
+  var zf5 = (ZONES[game.zone] && ZONES[game.zone].fires) || FIRE_SPOTS;
+  for (var fg5=0; fg5<zf5.length; fg5++){
+    var fd5 = zf5[fg5] - f.x;
+    var fa5 = 1 - Math.abs(fd5) / 70;
+    if (fa5 > fireGlow){ fireGlow = fa5; fireDir = fd5 >= 0 ? 1 : -1; }
+  }
+  for (var fg6=0; fg6<game.clouds.length; fg6++){
+    var cf6 = game.clouds[fg6];
+    if (!cf6.fire) continue;
+    var fd6 = cf6.x - f.x;
+    if (Math.abs(cf6.z - f.z) > 34) continue;
+    var fa6 = 1 - Math.abs(fd6) / 60;
+    if (fa6 > fireGlow){ fireGlow = fa6; fireDir = fd6 >= 0 ? 1 : -1; }
+  }
   if (f.state === 'attack' && f.attackKind &&
       f.attackKind !== 'tackle' && f.attackKind !== 'charge' &&
       f.attackKind !== 'pounce' && f.attackKind !== 'push' && f.attackKind !== 'stomp'){
@@ -5085,6 +5129,19 @@ function drawFighter(g, f){
     }
   }
   drawBody(g, f);
+  if (fireGlow > 0.08){
+    // liseret de lumiere orangee cote feu, vacillant
+    var flick5 = 0.75 + 0.25 * Math.sin(game.time * 13 + f.x * 0.7);
+    var fga = Math.min(0.28, fireGlow * 0.30) * flick5;
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    var fgr = g.createRadialGradient(fireDir * f.dir * 9, -18, 2, fireDir * f.dir * 9, -18, 24);
+    fgr.addColorStop(0, 'rgba(255,150,60,' + fga.toFixed(3) + ')');
+    fgr.addColorStop(1, 'rgba(255,150,60,0)');
+    g.fillStyle = fgr;
+    g.beginPath(); g.arc(fireDir * f.dir * 6, -16, 24, 0, TAU); g.fill();
+    g.restore();
+  }
   g.restore();
   if (f.isPlayer && f.charId === 'crs' && game.loadout.lbd === 1 && f.lbdCd <= 0 &&
       (f.state==='idle' || f.state==='walk')){
@@ -5112,6 +5169,18 @@ function drawFighter(g, f){
   }
   if (f.state==='cuffing'){
     drawBar(g, sx-11, syFoot - f.y - 46, 22, 3, clamp(f.stateT/1.2, 0, 1), '#7ec8ff', 'rgba(20,40,60,0.85)');
+  }
+  if (f.state==='cuffed'){
+    // menottes : deux anneaux relies dans le dos
+    g.save();
+    g.translate(-2, -4);
+    g.strokeStyle='#9aa5bd'; g.lineWidth=1.1; g.lineCap='round';
+    g.beginPath(); g.arc(-1.5, 0, 1.5, 0, TAU); g.stroke();
+    g.beginPath(); g.arc(1.8, 0.4, 1.5, 0, TAU); g.stroke();
+    g.beginPath(); g.moveTo(-0.2, 0); g.lineTo(0.6, 0.3); g.stroke();
+    g.restore();
+    // il gigote un peu
+    if (Math.random() < 0.02) addParticles(f.x, f.z, 3, 2, '#8d8272', 20);
   }
   if (f.state==='sitin'){
     var za = 0.13 + 0.08*Math.sin(game.time*3);
@@ -6214,6 +6283,17 @@ function drawHUD(g){
     var bf = game.fighters[bi];
     if (bf.boss && !bf.dead){ boss = bf; break; }
   }
+  // jauges morales : RIPOU / HONNEUR (haut droit, sous le score)
+  g.textAlign = 'right';
+  g.font = 'bold 5px monospace';
+  g.fillStyle = '#ff8a7a';
+  g.fillText('RIPOU', W - 54, 40);
+  drawBar(g, W - 50, 36, 42, 4, (game.ripou || 0) / 10, '#e74c3c', 'rgba(60,18,18,0.8)');
+  g.fillStyle = '#ffd166';
+  g.fillText('HONNEUR', W - 54, 48);
+  drawBar(g, W - 50, 44, 42, 4, (game.honneur || 0) / 10, '#ffd166', 'rgba(58,48,18,0.8)');
+  g.textAlign = 'left';
+
   if (boss){
     var bFin = boss.finalBoss;
     g.textAlign='center';
@@ -7054,6 +7134,7 @@ function draw(){
 
   if (game.state==='victory'){
     g.fillStyle='rgba(8,10,20,0.72)'; g.fillRect(0,0,W,H);
+    drawFinScene(g);
     // confettis
     for (var cf=0; cf<36; cf++){
       var cfx = ((cf*131 + game.time*(14+(cf%5)*6)) % (W+20)) - 10;
@@ -7073,22 +7154,15 @@ function draw(){
     g.fillText('LE BOUCHER EST TOMBE \u00B7 LE PARVIS EST DEGAGE', W/2, 112);
     var vk = game.score >= 6000 ? 'S' : (game.score >= 3800 ? 'A' : (game.score >= 2200 ? 'B' : (game.score >= 1000 ? 'C' : 'D')));
     var vkCol = vk==='S' ? '#ffd166' : (vk==='A' ? '#7ce38b' : (vk==='B' ? '#7ec8ff' : (vk==='C' ? '#cfd4e0' : '#8b96ad')));
-    g.strokeStyle = vkCol; g.lineWidth = 2;
-    g.beginPath(); g.arc(W/2, 138, 15, 0, TAU); g.stroke();
-    g.fillStyle = vkCol; g.font = 'bold 18px monospace';
-    g.fillText(vk, W/2, 144);
-    g.fillStyle='#dfe6f2'; g.font='9px monospace';
-    g.fillText('SCORE ' + game.score + '  \u00B7  ' + (game.kills||0) + ' NEUTRALISATIONS  \u00B7  COMBO x' + game.bestCombo, W/2, 168);
+    g.strokeStyle = vkCol; g.lineWidth = 1.6;
+    g.beginPath(); g.arc(W/2 - 108, 100, 11, 0, TAU); g.stroke();
+    g.fillStyle = vkCol; g.font = 'bold 13px monospace';
+    g.fillText(vk, W/2 - 108, 104.5);
+    g.fillStyle='#dfe6f2'; g.font='8px monospace';
+    g.fillText('SCORE ' + game.score + '  \u00B7  ' + (game.kills||0) + ' NEUTRALISATIONS  \u00B7  COMBO x' + game.bestCombo, W/2 + 12, 102);
     g.fillStyle = Math.floor(game.time*2)%2===0 ? '#ffd166' : '#8b7333';
-    g.font='9px monospace';
-    g.fillText('ENTREE POUR REJOUER', W/2, 190);
-    if (!game.scoreSaved){
-      g.fillStyle='#7ec8ff'; g.font='bold 8px monospace';
-      g.fillText('S : INSCRIRE MON SCORE AU TABLEAU DE LA CLASSE', W/2, 206);
-    } else {
-      g.fillStyle='#7ce38b'; g.font='8px monospace';
-      g.fillText('SCORE ENVOYE \u2713', W/2, 206);
-    }
+    g.font='8px monospace';
+    g.fillText('ENTREE POUR REJOUER' + (game.scoreSaved ? '  \u00B7  SCORE ENVOYE \u2713' : '  \u00B7  S : INSCRIRE MON SCORE'), W/2, 258);
     g.textAlign='left';
   }
 
@@ -7147,24 +7221,230 @@ if (typeof requestAnimationFrame === 'function' && ctx){
   requestAnimationFrame(function(ts){ last = ts/1000; requestAnimationFrame(frame); });
 }
 
-/* ---------------- Boutons ---------------- */
-document.getElementById('btnRestart').addEventListener('click', function(){
-  resetGame(); canvas.focus();
-});
-document.getElementById('btnPause').addEventListener('click', function(){
-  togglePause(); canvas.focus();
-});
+/* -------- Fins animees : mini-renderer de ceremonie -------- */
+/* Un CRS tete nue (ou autre), parametrable : couleur de tenue, cheveux, bras, accessoires. */
+function drawCeremonyGuy(g, opt){
+  opt = opt || {};
+  var suit = opt.suit || '#2f3b5c', suitD = shd(suit, 0.82) || suit;
+  var skin = opt.skin || '#e0b48f';
+  // jambes
+  bLimb(g, -2.4, 13, -2.4, 2.4, 4.2, suitD);
+  bLimb(g,  2.4, 13,  2.4, 2.4, 4.2, suit);
+  bRR(g, -5.8, 0, 7, 4, 1.7, '#1b2130');
+  bRR(g, -1.0, 0, 7, 4, 1.7, '#1b2130');
+  // bras arriere
+  var aB = opt.armB || [ -5.5, 12 ];
+  bLimb(g, -3.4, 22, aB[0], aB[1], 3.6, suitD);
+  bEll(g, aB[0], aB[1], 1.8, 1.8, skin);
+  // torse
+  var tg9 = g.createLinearGradient(0, -25, 0, -11);
+  tg9.addColorStop(0, suit); tg9.addColorStop(1, suitD);
+  g.fillStyle = tg9; rrPath(g, -6, -25, 12, 13.6, 3.2); g.fill();
+  g.strokeStyle = 'rgba(8,10,16,0.4)'; g.lineWidth = 0.7;
+  rrPath(g, -6, -25, 12, 13.6, 3.2); g.stroke();
+  if (opt.zip){
+    g.strokeStyle = 'rgba(200,205,215,0.5)'; g.lineWidth = 0.7;
+    g.beginPath(); g.moveTo(0.4, -24.4); g.lineTo(0.4, -12.4); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.14)'; g.fillRect(-6, -25, 12, 2);
+  }
+  if (opt.medal){
+    g.strokeStyle = '#a52f22'; g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(2.8, -24.4); g.lineTo(3.4, -20.8); g.stroke();
+    g.fillStyle = '#ffd166';
+    g.beginPath();
+    for (var mst=0; mst<10; mst++){
+      var man = -Math.PI/2 + mst*Math.PI/5;
+      var mrr = mst%2===0 ? 2.1 : 0.95;
+      if (mst===0) g.moveTo(3.4 + Math.cos(man)*mrr, -20 + Math.sin(man)*mrr);
+      else g.lineTo(3.4 + Math.cos(man)*mrr, -20 + Math.sin(man)*mrr);
+    }
+    g.closePath(); g.fill();
+  }
+  // tete nue
+  bEll(g, -1.3, 28, 2.3, 2.7, opt.bald ? skin : (opt.hair || '#4a3826'));
+  drawFace(g, 0.8, 27.4, 0.98, { skin: skin, angry: opt.angry || 0,
+    stubble: opt.stubble, mouth: opt.mouth });
+  if (opt.bald){
+    bEll(g, 0.4, 30.2, 3.1, 1.6, skin);           // crane lisse
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.beginPath(); g.ellipse(-0.4, -30.8, 1.2, 0.6, -0.3, 0, TAU); g.fill();
+  } else if (opt.hair !== 'none'){
+    bEll(g, 0.4, 30.4, 3.1, 1.7, opt.hair || '#4a3826');   // cheveux
+  }
+  if (opt.sunglasses){
+    g.fillStyle = '#0c0e14';
+    rrPath(g, 0.4, -28.4, 2.2, 1.5, 0.6); g.fill();
+    rrPath(g, 3.0, -28.4, 2.1, 1.5, 0.6); g.fill();
+    g.strokeStyle = '#0c0e14'; g.lineWidth = 0.5;
+    g.beginPath(); g.moveTo(2.6, -27.8); g.lineTo(3.0, -27.8); g.stroke();
+  }
+  // bras avant
+  var aF = opt.armF || [ 6.5, 12 ];
+  bLimb(g, 3.2, 22, aF[0], aF[1], 3.6, suit);
+  bEll(g, aF[0], aF[1], 1.8, 1.8, skin);
+}
+
+function drawFinScene(g){
+  var t = game.time - (game.finT0 || game.time);
+  var kind = game.finKind || 'routine';
+  var cx = W/2, cy = 168;
+  g.save();
+  // socle de scene
+  g.fillStyle = 'rgba(10,13,22,0.55)';
+  rrPath(g, cx - 120, cy - 52, 240, 66, 8); g.fill();
+  g.strokeStyle = 'rgba(255,209,102,0.25)'; g.lineWidth = 1;
+  rrPath(g, cx - 120, cy - 52, 240, 66, 8); g.stroke();
+  g.translate(cx, cy + 8);
+
+  if (kind === 'routine'){
+    // il nourrit les pigeons, casque pose
+    g.save(); g.translate(-26, 0); g.scale(1.05, 1.05);
+    drawCeremonyGuy(g, { armF: [9, 16], mouth: undefined });
+    g.restore();
+    // casque pose au sol
+    g.fillStyle = '#232f4b';
+    g.beginPath(); g.ellipse(-46, -3, 4.4, 3.6, 0, Math.PI, 0); g.fill();
+    g.fillStyle = 'rgba(126,200,255,0.5)'; g.fillRect(-49, -4.6, 6, 1.6);
+    // miettes
+    g.fillStyle = '#e3cd8b';
+    for (var mi=0; mi<5; mi++){
+      var mxp = -8 + ((mi*53 + Math.floor(t*2)*17) % 46);
+      g.fillRect(mxp, -1.2, 1, 1);
+    }
+    // pigeons qui picorent
+    for (var pg=0; pg<3; pg++){
+      var pgx = 6 + pg*16 + Math.sin(t*1.3 + pg*2)*2;
+      var peck = Math.max(0, Math.sin(t*5 + pg*1.7)) * 2.2;
+      g.save(); g.translate(pgx, 0);
+      bEll(g, 0, 3.2, 3, 2.3, '#8b93a6');
+      bEll(g, 2.4, 4.6 - peck, 1.5, 1.4, '#6e7688');
+      g.fillStyle = '#e8a13c';
+      g.beginPath(); g.moveTo(3.6, -(4.6 - peck)); g.lineTo(4.8, -(4.2 - peck)); g.lineTo(3.6, -(4 - peck)); g.closePath(); g.fill();
+      g.strokeStyle = '#e8a13c'; g.lineWidth = 0.6;
+      g.beginPath(); g.moveTo(-0.6, -0.9); g.lineTo(-0.6, 0); g.moveTo(0.8, -0.9); g.lineTo(0.8, 0); g.stroke();
+      g.restore();
+    }
+  } else if (kind === 'ripou'){
+    var phase = Math.min(1, t / 2.2);
+    var rase = phase > 0.5;
+    g.save(); g.scale(1.1, 1.1);
+    drawCeremonyGuy(g, {
+      suit: rase ? '#15161c' : '#2f3b5c',
+      zip: rase, bald: rase, sunglasses: rase,
+      stubble: true, angry: 0.6, mouth: 'grim',
+      armF: rase ? [5.5, 20] : [8.5, 27],       // tondeuse puis bras croise
+      armB: rase ? [-5.5, 20] : [-5.5, 12]
+    });
+    if (!rase){
+      // la tondeuse et les cheveux qui tombent
+      g.fillStyle = '#39415a'; rrPath(g, 6.6, -29.5, 4.4, 2.4, 0.9); g.fill();
+      g.fillStyle = '#8b96ad'; g.fillRect(6.6, -28.7, 1, 0.9);
+      g.fillStyle = '#4a3826';
+      for (var ch=0; ch<6; ch++){
+        var cht = (t*1.6 + ch*0.37) % 1;
+        g.fillRect(-2 + ch*1.6, -27 + cht*24, 1.1, 2);
+      }
+    }
+    g.restore();
+    if (rase){
+      // reflet cuir du bomber
+      g.save(); g.globalCompositeOperation = 'lighter';
+      g.fillStyle = 'rgba(120,130,160,0.10)';
+      rrPath(g, -7, -27, 5, 13, 3); g.fill();
+      g.restore();
+    }
+  } else if (kind === 'honneur'){
+    // la Presidente epingle la Legion d honneur
+    g.save(); g.translate(16, 0); g.scale(1.05, 1.05);
+    drawCeremonyGuy(g, { medal: t > 1.2, armF: [7.5, 26.5], armB: [-5.5, 12], mouth: undefined });
+    g.restore();
+    // la Presidente (corps existant reutilise)
+    g.save(); g.translate(-26, 0); g.scale(-1.02, 1.02);
+    var fkM = { pal: PAL_MIN, state: 'idle', stateT: 0, animT: t, dir: 1,
+                weapon: null, comboStep: 0, buffT: 0, spec: {}, isPlayer: true, charId: 'ministre',
+                attackSpec: function(){ return ATTACKS.punch1; } };
+    var oM = computePose(fkM);
+    oM.armF = t < 1.2 ? 'fwd' : 'fwd0';
+    drawBodyMinistre(g, fkM, oM);
+    g.restore();
+    // confettis tricolores
+    for (var cf9=0; cf9<14; cf9++){
+      var cfx9 = -100 + ((cf9*37 + t*(20 + (cf9%3)*9)) % 200);
+      var cfy9 = -58 + ((cf9*23 + t*34) % 62);
+      g.fillStyle = ['#3a5da8','#e8e4d8','#c0392b'][cf9 % 3];
+      g.save(); g.translate(cfx9, cfy9); g.rotate(t*3 + cf9);
+      g.fillRect(-1.2, -0.8, 2.4, 1.6);
+      g.restore();
+    }
+  } else {
+    // DEMOLITION : cryostase + les trois coquillages
+    var geleH = Math.min(46, t * 22);            // le bloc monte
+    g.save(); g.scale(1.08, 1.08);
+    drawCeremonyGuy(g, { armF: [9.5, 22], armB: [-8.5, 21], angry: 0.5, mouth: 'grim' });
+    g.restore();
+    // bloc de cryo-glace translucide
+    g.fillStyle = 'rgba(140,205,255,0.30)';
+    rrPath(g, -13, -geleH, 26, geleH, 3); g.fill();
+    g.strokeStyle = 'rgba(200,235,255,0.55)'; g.lineWidth = 1;
+    rrPath(g, -13, -geleH, 26, geleH, 3); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 0.7;
+    g.beginPath();
+    g.moveTo(-9, -geleH + 3); g.lineTo(-5, -geleH * 0.55);
+    g.moveTo(7, -geleH + 5); g.lineTo(4, -geleH * 0.4);
+    g.stroke();
+    // brume au sol
+    g.save(); g.globalCompositeOperation = 'lighter';
+    for (var br9=0; br9<4; br9++){
+      var brx = -20 + br9*13 + Math.sin(t*0.9 + br9)*4;
+      g.fillStyle = 'rgba(180,220,255,0.06)';
+      g.beginPath(); g.ellipse(brx, 1, 9, 3, 0, 0, TAU); g.fill();
+    }
+    g.restore();
+    // les trois coquillages, sur leur petit socle
+    g.save(); g.translate(38, 0);
+    g.fillStyle = '#2a3245'; rrPath(g, -9, -2.4, 18, 2.4, 1); g.fill();
+    for (var sq9=0; sq9<3; sq9++){
+      g.save(); g.translate(-5 + sq9*5, -3.6);
+      g.fillStyle = '#e8e2d4';
+      g.beginPath(); g.moveTo(0, 1.4);
+      g.quadraticCurveTo(-2.2, 0.4, -1.6, -1.4);
+      g.quadraticCurveTo(0, -2.6, 1.6, -1.4);
+      g.quadraticCurveTo(2.2, 0.4, 0, 1.4);
+      g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(140,120,100,0.6)'; g.lineWidth = 0.4;
+      g.beginPath();
+      g.moveTo(0, 1.2); g.lineTo(-1.1, -1.2);
+      g.moveTo(0, 1.2); g.lineTo(0, -1.8);
+      g.moveTo(0, 1.2); g.lineTo(1.1, -1.2);
+      g.stroke();
+      g.restore();
+    }
+    g.restore();
+  }
+  g.restore();
+
+  // titre de la fin
+  g.textAlign = 'center';
+  g.font = 'bold 8px monospace';
+  var finTitres = {
+    routine:    ['LA ROUTINE', 'Le parvis est calme. Les pigeons reviennent.', '#9aa5bd'],
+    ripou:      ['LE RIPOU', 'Crane rase, bomber en cuir. L IGPN enquete.', '#ff6b5e'],
+    honneur:    ['LA LEGION D HONNEUR', 'Pas une bavure. La Republique s incline.', '#ffd166'],
+    demolition: ['CRYO-PENITENCIER', 'Efficace mais incontrolable. Rehabilitation comportementale \u2014 et les trois coquillages.', '#8fd3f4']
+  };
+  var ft = finTitres[kind] || finTitres.routine;
+  g.fillStyle = ft[2];
+  g.fillText(ft[0], W/2, 236);
+  g.font = '6px monospace';
+  g.fillStyle = '#8b96ad';
+  g.fillText(ft[1], W/2, 246);
+  g.textAlign = 'left';
+}
+
+/* ---------------- Son ---------------- */
 function toggleMute(){
   muted = !muted;
-  try {
-    var bmu = document.getElementById('btnMute');
-    if (bmu) bmu.textContent = muted ? 'Son : OFF' : 'Son : ON';
-  } catch(e){}
 }
-document.getElementById('btnMute').addEventListener('click', function(){
-  toggleMute();
-  canvas.focus();
-});
 canvas.addEventListener('click', function(){
   if (game.aideOpen){ closeAide(); return; }
   if (game.state==='title' || game.state==='gameover' || game.state==='victory') onEnter();
@@ -7196,6 +7476,7 @@ window.__crs = {
   openAide: openAide,
   closeAide: closeAide,
   isMuted: function(){ return muted; },
+  drawFinScene: drawFinScene,
   spawnItem: spawnItem,
   detectSpecial: detectSpecial,
   nearestItem: nearestItem,
