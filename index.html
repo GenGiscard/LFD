@@ -1135,6 +1135,16 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
 };
 
 Fighter.prototype.die = function(dirFrom){
+  if (this.kind === 'punk'){
+    for (var vg2 = 0; vg2 < game.fighters.length; vg2++){
+      var cvg2 = game.fighters[vg2];
+      if (cvg2.kind === 'chien' && cvg2.maitre === this && !cvg2.dead){
+        cvg2.speed = Math.round(cvg2.speed * 1.3);
+        cvg2.venge = true;
+        addFloater(cvg2.x, cvg2.screenY() - 44, 'GRRRR !!', '#ff6b5e', 1.2);
+      }
+    }
+  }
   this.dead = true;
   this.setState('fall');
   this.vy = 170; this.y = Math.max(this.y, 1);
@@ -1263,6 +1273,12 @@ var ENEMY_TYPES = {
                 slogans:['J AI ECRIT VOTRE MANUEL.','VOUS NE COMPRENEZ RIEN.'] },
   junkie:     { name:'Junkie', hp:22, spd:88, pal:null, atk:['epunch'], junkie:true,
                 slogans:['T AS PAS 2 EUROS ?','LE SON !! LE SON !!'] },
+  punk:       { name:'Punk a chien', hp:55, spd:55, pal:null, atk:['boule2','epunch'], punk:true,
+                slogans:['C EST MON CHIEN QUI DECIDE.','T AS PAS UNE PIECE POUR LE CHIEN ?','LE SYSTEME, C EST TOI.'] },
+  chien:      { name:'Chien de punk', hp:20, spd:96, pal:null, atk:['bite2'], chien:true,
+                slogans:['WAF !','GRRRR.'] },
+  rasta:      { name:'Rasta', hp:70, spd:34, pal:null, atk:['epunch'], rasta:true,
+                slogans:['PAIX, FRERE. ENFIN, PAS POUR TOI.','JAH VOIT TOUT, CAPITAINE.','DOUCEMENT LE MATIN.'] },
   sdf:        { name:'SDF au caddie', hp:85, spd:30, pal:null, atk:['caddie'], sdf:true,
                 slogans:['C EST MON ROND-POINT.','LAISSE-MOI DORMIR.'] },
   dj:         { name:'LE DJ', hp:620, spd:26, pal:null, atk:[], boss:true, finalBoss:true,
@@ -1294,6 +1310,8 @@ function wavePool(n){
   if (n >= 3) pool.push('ouvrier','costaud','leader','tambour');
   if (n >= 4) pool.push('ecolo','ecolo','artiste');
   if (n >= 5) pool.push('doyen');
+  if (n >= 4) pool.push('punk');
+  if (n >= 6) pool.push('rasta');
   if (n >= 15) pool.push('junkie','junkie','sdf');
   return pool;
 }
@@ -1347,6 +1365,8 @@ var ATTACKS = {
   dash2:   { dur:0.50, a0:0.10, a1:0.36, dmg:12, range:14, kb:170, kd:true,  mv:52 },
   vcharge: { dur:0.85, a0:0.20, a1:0.62, dmg:16, range:15, kb:250, kd:true,  mv:40 },
   caddie:  { dur:0.75, a0:0.30, a1:0.55, dmg:12, range:17, kb:200, kd:true,  mv:26 },
+  boule2:  { dur:0.55, a0:0.18, a1:0.36, dmg:11, range:11, kb:150, kd:true,  mv:34 },
+  bite2:   { dur:0.38, a0:0.10, a1:0.26, dmg:5,  range:9,  kb:40,  kd:false, mv:14 },
   flag:    { dur:0.42, a0:0.14, a1:0.26, dmg:8,  range:22, kb:60,  kd:false, mv:6  },
   sign:    { dur:0.48, a0:0.16, a1:0.30, dmg:10, range:20, kb:70,  kd:false, mv:6  },
   slap:    { dur:0.40, a0:0.14, a1:0.24, dmg:5,  range:14, kb:35,  kd:false, mv:0  },
@@ -1401,6 +1421,29 @@ Fighter.prototype.update = function(dt){
   if (this.litT > 0) this.litT -= dt;
   if (this.ondeHitT > 0) this.ondeHitT -= dt;
   if (this.pwrHitT > 0) this.pwrHitT -= dt;
+  if (!this.isPlayer && this.kind === 'rasta' && !this.dead &&
+      this.state !== 'cuffed' && this.state !== 'down' && this.state !== 'fall' && this.state !== 'flee'){
+    this.paixTick = (this.paixTick || 0) - dt;
+    if (this.paixTick <= 0){
+      this.paixTick = 0.5;
+      for (var pz2 = 0; pz2 < game.fighters.length; pz2++){
+        var fz2 = game.fighters[pz2];
+        if (fz2.dead || Math.abs(fz2.x - this.x) > 46 || Math.abs(fz2.z - this.z) > 24) continue;
+        if (!fz2.isPlayer && fz2 !== this && fz2.state !== 'cuffed' && fz2.hp < fz2.hpMax){
+          fz2.hp = Math.min(fz2.hpMax, fz2.hp + 2);          // la paix soigne les siens
+          if (Math.random() < 0.5) game.particles.push({ x:fz2.x+rnd(-4,4), z:fz2.z, y:rnd(8,24),
+            vx:0, vy:12, vz:0, t:0.5, col:['#63d68f','#ffd166','#c0392b'][irnd(0,2)] });
+        }
+        if (fz2.isPlayer && fz2.fury > 0){
+          fz2.fury = Math.max(0, fz2.fury - 3);              // l adrenaline retombe : PAIX...
+          if (Math.random() < 0.3) addFloater(fz2.x, fz2.screenY() - 44, 'PAIX...', '#63d68f');
+        }
+      }
+    }
+    // le halo vert-jaune-rouge qui respire
+    if (Math.random() < 0.12) game.particles.push({ x:this.x+rnd(-14,14), z:this.z+rnd(-8,8), y:rnd(2,10),
+      vx:0, vy:8, vz:0, t:0.6, col:['#63d68f','#ffd166','#c0392b'][irnd(0,2)] });
+  }
   if (this.zapT > 0){
     this.zapT -= dt;
     this.vx = 0;
@@ -3455,6 +3498,7 @@ function spawnEnemy(kind){
     name: et.name,
     kind: kind,
     pal: et.pal || (kind === 'drone' ? { skin:'#8b96ad', hair:'#8b96ad' } : palCasseur(seed)),
+    seed: seed,
     x: x, z: rnd(Z_MIN+6, Z_MAX-6),
     dir: side<0?1:-1,
     hp: Math.round((et.hp + game.wave*6) * (game.lois.austerite && !et.boss ? 0.8 : 1)),
@@ -3491,6 +3535,12 @@ function spawnEnemy(kind){
     f.lobCd = 6; f.introT = 6; f.introDone = false;
   }
   f.atkList = et.atk;
+  if (kind === 'punk' && !f.sansChien){
+    var ch2 = spawnEnemy('chien');
+    ch2.maitre = f;
+    ch2.x = clamp(f.x - 18, 16, MAP_W - 16);
+    ch2.z = clamp(f.z + 6, Z_MIN, Z_MAX);
+  }
   if (f.kind === 'etudiant'){
     f.femme = Math.random() < 0.4;                       // manifestante aux cheveux bleus
     if (Math.random() < 0.45){ f.pancarte = true; f.atkList = ['sign','epunch']; }
@@ -5562,6 +5612,122 @@ function drawBodyCasseur(g, f, o){
 }
 
 /* --- etudiant revolte : bonnet rouge, veste verte --- */
+function drawBodyPunk(g, f, o){
+  var crete = ['#63d68f','#ff5cf0','#ff8a3c'][(f.seed || 0) % 3];
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.3, 3.8, '#2a2a32');
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.3, 3.8, '#32323c');
+  // rangers
+  bRR(g, -2.2 + o.legB - 3, 0, 6.2, 3.6, 1.4, '#14161c');
+  bRR(g,  2.2 + o.legF - 3, 0, 6.2, 3.6, 1.4, '#14161c');
+  g.fillStyle = '#8b96ad';
+  g.fillRect(-2.2 + o.legB - 2, -2.6, 4, 0.8);
+  g.fillRect(2.2 + o.legF - 2, -2.6, 4, 0.8);
+  drawArmS(g, f, o.armB, -1, '#1b1e26');
+  // perfecto clout
+  g.fillStyle = '#1b1e26';
+  rrPath(g, -5.6, -24.5, 11.2, 13, 2.6); g.fill();
+  g.fillStyle = '#c9d2e4';
+  for (var cl2 = 0; cl2 < 5; cl2++){
+    g.fillRect(-4.4 + cl2 * 2.2, -23.6, 0.9, 0.9);
+    g.fillRect(-4.4 + cl2 * 2.2, -13.6, 0.9, 0.9);
+  }
+  g.strokeStyle = '#3a4252'; g.lineWidth = 0.8;
+  g.beginPath(); g.moveTo(-1, -24); g.lineTo(1.6, -12.5); g.stroke();   // le zip
+  // tete : crane rase + LA CRETE
+  bEll(g, -1.3, 27.4, 2.2, 2.6, '#c9a582');
+  drawFace(g, 0.7, 27, 0.92, { skin: '#d8b598', angry: 0.5 });
+  g.fillStyle = crete;
+  for (var ik2 = 0; ik2 < 5; ik2++){
+    var kx2 = -3 + ik2 * 1.8;
+    g.beginPath();
+    g.moveTo(kx2, -29);
+    g.lineTo(kx2 + 0.9, -33.6 - Math.sin(f.animT * 6 + ik2) * 0.5);
+    g.lineTo(kx2 + 1.8, -29);
+    g.closePath(); g.fill();
+  }
+  // anneau a l oreille
+  g.strokeStyle = '#ffd166'; g.lineWidth = 0.6;
+  g.beginPath(); g.arc(-1.6, -27, 0.9, 0, TAU); g.stroke();
+  drawArmS(g, f, o.armF, 1, '#1b1e26');
+}
+
+function drawBodyChien(g, f, o){
+  // le corniaud du punk : sombre, bandana rouge, nerveux
+  var robe = '#4a3a2c', robeD = '#38291e';
+  var atk2 = f.state === 'attack';
+  var trot2 = Math.sin(f.animT * 14) * 2;
+  g.save();
+  g.scale(0.82, 0.82);
+  // pattes trottinantes
+  g.strokeStyle = robeD; g.lineWidth = 1.6; g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(-3.4, -5); g.lineTo(-3.4 + trot2, 0);
+  g.moveTo(3.6, -5); g.lineTo(3.6 - trot2, 0);
+  g.stroke();
+  // corps + tete
+  bEll(g, 0, 7.4, 6.4, 3.6, robe);
+  bEll(g, 6.2, 10, 2.8, 2.4, robe);
+  // museau + truffe
+  g.fillStyle = robeD;
+  g.beginPath(); g.moveTo(8, -10.8); g.lineTo(10.6, -9.4); g.lineTo(7.8, -8.6); g.closePath(); g.fill();
+  g.fillStyle = '#0c0e12';
+  g.beginPath(); g.arc(10.2, -9.6, 0.7, 0, TAU); g.fill();
+  // oreille cassee
+  g.fillStyle = robeD;
+  g.beginPath(); g.moveTo(4.6, -12.4); g.lineTo(5.4, -15); g.lineTo(6.6, -12.6); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(6.8, -12.4); g.lineTo(8.4, -13.6); g.lineTo(8.2, -11.8); g.closePath(); g.fill();
+  // LE BANDANA rouge
+  g.fillStyle = '#c0392b';
+  g.fillRect(3.6, -9.2, 5, 1.8);
+  g.beginPath(); g.moveTo(4, -7.4); g.lineTo(3, -5.2); g.lineTo(5.2, -7); g.closePath(); g.fill();
+  // oeil + croc si attaque
+  g.fillStyle = f.venge ? '#ff5a3c' : '#0c0e12';
+  g.beginPath(); g.arc(6.6, -10.6, 0.55, 0, TAU); g.fill();
+  if (atk2){
+    g.fillStyle = '#f5eee0';
+    g.beginPath(); g.moveTo(8.6, -8.8); g.lineTo(9.2, -7.6); g.lineTo(9.7, -8.7); g.closePath(); g.fill();
+  }
+  // queue qui fouette
+  g.strokeStyle = robe; g.lineWidth = 1.4;
+  g.beginPath(); g.moveTo(-5.8, -8.4);
+  g.quadraticCurveTo(-8.6, -10 + Math.sin(f.animT * 12) * 2.4, -9.6, -8);
+  g.stroke();
+  g.restore();
+}
+
+function drawBodyRasta(g, f, o){
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.3, 3.9, '#3a4a3a');
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.3, 3.9, '#465646');
+  bRR(g, -2.2 + o.legB - 3, 0, 6.2, 3.4, 1.5, '#6a5a3a');
+  bRR(g,  2.2 + o.legF - 3, 0, 6.2, 3.4, 1.5, '#6a5a3a');
+  drawArmS(g, f, o.armB, -1, '#4a5a4a');
+  // tunique ample
+  g.fillStyle = '#4a5a4a';
+  rrPath(g, -5.4, -24.5, 10.8, 13, 3); g.fill();
+  g.fillStyle = '#ffd166';
+  g.fillRect(-5.4, -18.6, 10.8, 1.1);
+  g.fillStyle = '#c0392b';
+  g.fillRect(-5.4, -16.6, 10.8, 1.1);
+  // tete
+  bEll(g, -1.3, 27.2, 2.2, 2.6, '#6a4a2e');
+  drawFace(g, 0.7, 26.8, 0.92, { skin: '#8a5c36', angry: 0 });
+  // LES DREADLOCKS qui battent
+  g.strokeStyle = '#2b1e12'; g.lineWidth = 1.5; g.lineCap = 'round';
+  for (var dr2 = 0; dr2 < 5; dr2++){
+    var dx2 = -3.4 + dr2 * 1.7;
+    var sw2 = Math.sin(f.animT * 5 + dr2 * 1.3) * 1.6;
+    g.beginPath();
+    g.moveTo(dx2, -28.4);
+    g.quadraticCurveTo(dx2 - 1 + sw2, -23, dx2 - 0.6 + sw2 * 1.4, -18.5 + (dr2 % 2) * 2);
+    g.stroke();
+  }
+  // le bonnet vert-jaune-rouge
+  bEll(g, 0.4, 30.4, 3, 2, '#1e5a2e');
+  g.fillStyle = '#ffd166'; g.fillRect(-2.4, -29.6, 5.6, 0.9);
+  g.fillStyle = '#c0392b'; g.fillRect(-2.4, -28.7, 5.6, 0.9);
+  drawArmS(g, f, o.armF, 1, '#4a5a4a');
+}
+
 function drawBodyJunkie(g, f, o){
   var pal = f.pal;
   var tw = Math.sin(f.animT * 21) * 1.1;   // le tremblement
@@ -6668,6 +6834,9 @@ function drawBody(g, f){
   else if (f.kind==='drone') drawBodyDrone(g, f, o);
   else if (f.kind==='agitateur') drawBodyCasseur(g, f, o);
   else if (f.kind==='junkie') drawBodyJunkie(g, f, o);
+  else if (f.kind==='punk') drawBodyPunk(g, f, o);
+  else if (f.kind==='chien') drawBodyChien(g, f, o);
+  else if (f.kind==='rasta') drawBodyRasta(g, f, o);
   else if (f.kind==='sdf') drawBodySdf(g, f, o);
   else if (f.kind==='dj') drawBodyDJ(g, f, o);
   else if (f.kind==='veteran') drawBodyVeteran(g, f, o);
@@ -8197,7 +8366,8 @@ function drawHUD(g){
     var bFin = boss.finalBoss;
     g.textAlign='center';
     g.fillStyle = bFin ? '#ff8a7a' : '#e0b8ff'; g.font='bold 7px monospace';
-    g.fillText(bFin ? 'LE BOUCHER \u00B7 BOSS FINAL' : 'LE THEORICIEN', W/2, 13);
+    var bNom = (ENEMY_TYPES[boss.kind] && ENEMY_TYPES[boss.kind].name ? ENEMY_TYPES[boss.kind].name : 'BOSS').toUpperCase();
+    g.fillText(bNom + (bFin ? ' \u00B7 BOSS FINAL' : ''), W/2, 13);
     drawBar(g, W/2-70, 16, 140, 5, boss.hp/boss.hpMax,
       bFin ? (boss.enraged ? '#ff5a3c' : '#e74c3c') : '#a05ad0',
       bFin ? 'rgba(70,20,20,0.85)' : 'rgba(40,22,58,0.85)');
