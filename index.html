@@ -3880,7 +3880,7 @@ function musicTick(ac){
   if (!musicReady || !musicGainNode) return;
   var mode = metMode();
   var actif = !muted && settings.vol > 0 && mode !== 'off';
-  var base = mode === 'title' ? 0.225 : 0.4;   // musique a mi-hauteur des SFX
+  var base = mode === 'title' ? 0.252 : 0.448;   // musique +12%
   if (game.state === 'pause' || game.state === 'levelup') base *= 0.45;   // la musique respire, sans couper
   try {
     musicGainNode.gain.setTargetAtTime(actif ? settings.vol * base : 0, ac.currentTime, 0.15);
