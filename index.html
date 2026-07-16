@@ -62,8 +62,7 @@
     border-radius:50%; background:rgba(255,255,255,0.14);
     border:2px solid rgba(255,255,255,0.28);
   }
-  .tPwr{ right:118px !important; bottom:96px !important; width:42px !important; height:42px !important;
-         font-size:10px !important; border-color:#c97a2e !important; color:#ffd166 !important; }
+  .tPwr{ display:none !important; }   /* masque sur tactile pour l instant (clavier : F) */
   .tBtn{
     position:absolute; width:60px; height:60px; border-radius:50%;
     background:rgba(255,255,255,0.06); border:2px solid rgba(255,255,255,0.20);
@@ -583,6 +582,36 @@ document.addEventListener('keydown', function(e){
     e.preventDefault(); return;
   }
 
+  if (game.state === 'commissariat'){
+    var dlg = game.dlg;
+    if (dlg.step === 0){
+      if (e.key === 'ArrowUp'){ dlg.sel = (dlg.sel + 2) % 3; }
+      else if (e.key === 'ArrowDown'){ dlg.sel = (dlg.sel + 1) % 3; }
+      else if (e.key === 'Enter'){ dlgChoisir(); }
+    } else {
+      if (e.key === 'Enter' || e.key === 'Escape'){ ouvrirVille(); }
+    }
+    e.preventDefault(); return;
+  }
+  if (game.state === 'ville'){
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp'){ game.villeSel = (game.villeSel + VILLE_SPOTS.length - 1) % VILLE_SPOTS.length; }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown'){ game.villeSel = (game.villeSel + 1) % VILLE_SPOTS.length; }
+    else if (e.key === 'Enter'){ villeActiver(); }
+    e.preventDefault(); return;
+  }
+  if (game.state === 'lieu'){
+    var estShop9 = game.lieu && (game.lieu.id === 'armurerie' || game.lieu.id === 'academie');
+    if (estShop9){
+      var nIt9 = shopListe().length;
+      if (e.key === 'ArrowUp'){ game.shopSel = (game.shopSel + nIt9 - 1) % nIt9; }
+      else if (e.key === 'ArrowDown'){ game.shopSel = (game.shopSel + 1) % nIt9; }
+      else if (e.key === 'Enter'){ shopAcheter(); }
+      else if (e.key === 'Escape'){ game.state = 'ville'; SFX.pickup(); }
+    } else {
+      if (e.key === 'Enter' || e.key === 'Escape'){ game.state = 'ville'; SFX.pickup(); }
+    }
+    e.preventDefault(); return;
+  }
   if (game.state === 'binds'){
     if (game.bindWait){
       if (e.key === 'Escape'){ game.bindWait = null; }
@@ -890,8 +919,8 @@ function rnd(a,b){ return a + Math.random()*(b-a); }
 function irnd(a,b){ return Math.floor(rnd(a,b+1)); }
 function lerp(a,b,t){ return a+(b-a)*t; }
 
-function addFloater(x, sy, txt, col){
-  game.floaters.push({ x:x, sy:sy, txt:txt, col:col||'#fff', t:0.9 });
+function addFloater(x, sy, txt, col, vie){
+  game.floaters.push({ x:x, sy:sy, txt:txt, col:col||'#fff', t: vie || 0.9 });
 }
 function impactFX(x, z, y, big, col){
   game.particles.push({ star:true, x:x, z:z, y:y, t: big ? 0.2 : 0.13, r: big ? 7.5 : 5, col: col || '#ffd166' });
@@ -1080,7 +1109,7 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   }
   if (!blocked){
     SFX.hit();
-    if (this.isPlayer) this.fury = Math.min(100, (this.fury || 0) + 5);
+    if (this.isPlayer) this.fury = Math.min(100, (this.fury || 0) + (game.shop.sangfroid ? 7 : 5));
     if (knockdown) SFX.hitHeavy();
     if (!this.isPlayer && dmg >= 8 && this.state !== 'cuffed' &&
         (knockdown || Math.random() < 0.4)){
@@ -1371,6 +1400,15 @@ Fighter.prototype.update = function(dt){
   if (this.litT > 0) this.litT -= dt;
   if (this.ondeHitT > 0) this.ondeHitT -= dt;
   if (this.pwrHitT > 0) this.pwrHitT -= dt;
+  if (this.zapT > 0){
+    this.zapT -= dt;
+    this.vx = 0;
+    if (Math.random() < 0.4) game.particles.push({ x:this.x+rnd(-5,5), z:this.z, y:rnd(4,22),
+      vx:rnd(-20,20), vy:rnd(-10,20), vz:0, t:0.12, col:'#7ec8ff' });
+    if (!this.isPlayer && !this.dead && this.state !== 'cuffed'){
+      this.aiT = Math.max(this.aiT || 0, 0.1);   // le cerveau grille : pas de decision
+    }
+  }
   if (this.burnT > 0){
     this.burnT -= dt;
     this.burnTick = (this.burnTick || 0) - dt;
@@ -1408,7 +1446,7 @@ Fighter.prototype.update = function(dt){
     }
   }
   if (this.fleeT > 0) this.fleeT -= dt;
-  if (this.isPlayer && this.mp < this.mpMax) this.mp = Math.min(this.mpMax, this.mp + 5*dt);
+  if (this.isPlayer && this.mp < this.mpMax) this.mp = Math.min(this.mpMax, this.mp + (game.shop.souffle ? 8 : 5)*dt);
   var slow = this.gasT > 0 ? 0.55 : 1;
 
   switch(this.state){
@@ -1487,9 +1525,9 @@ Fighter.prototype.update = function(dt){
         if (lobbing){ /* la cloche a son propre cooldown (sig2Cd) */ }
         else if (game.loadout.lbd === 2){
           this.lbdAmmo--;
-          this.lbdCd = (this.lbdAmmo <= 0 ? 8 : 0.45) * lgm;
+          this.lbdCd = (this.lbdAmmo <= 0 ? 8 : 0.45) * lgm * (game.shop.chargeur ? 0.65 : 1);
         } else {
-          this.lbdCd = (game.loadout.lbd === 1 ? 5 : 6) * lgm;
+          this.lbdCd = (game.loadout.lbd === 1 ? 5 : 6) * lgm * (game.shop.chargeur ? 0.65 : 1);
         }
       }
       if (this.stateT >= 0.38) this.setState('idle');
@@ -1680,7 +1718,7 @@ Fighter.prototype.update = function(dt){
         game.particles.push({ x: ct.x + rnd(-4,4), z: ct.z, y: rnd(2,8),
           vx: rnd(-10,10), vy: rnd(10,26), vz: 0, t: rnd(0.15,0.3), col: '#7ec8ff' });
       }
-      if (this.stateT >= 1.2){
+      if (this.stateT >= (game.shop.poigne ? 0.78 : 1.2)){
         var cpts = Math.round((120 + game.wave*12) * (1 + Math.min(2, game.combo*0.05)));
         game.score += cpts; game.kills = (game.kills||0) + 1;
         game.combo++; game.comboT = game.comboWin || 1.6;
@@ -1689,7 +1727,7 @@ Fighter.prototype.update = function(dt){
         game.particles.push({ star:true, x:ct.x, z:ct.z, y:10, t:0.2, r:7, col:'#7ec8ff' });
         addParticles(ct.x, ct.z, 12, 8, '#7ec8ff', 60);
         stingerCuff();
-        this.fury = Math.min(100, (this.fury || 0) + 15);
+        this.fury = Math.min(100, (this.fury || 0) + (game.shop.sangfroid ? 20 : 15));
         ct.setState('cuffed');          // il reste a plat ventre, menotte
         ct.cuffedT = 6.0;
         ct.beaten = false;
@@ -1807,7 +1845,8 @@ Fighter.prototype.tryHit = function(sp){
       if (!(this.attackKind==='stomp' && (t.state==='down' || t.state==='cuffed'))) continue;
     }
     var dx = (t.x - this.x) * this.dir;
-    if (dx < 2 || dx > sp.range + 8) continue;
+    var rng9 = sp.range * (this.isPlayer && game.shop.allonge ? 1.2 : 1);
+    if (dx < 2 || dx > rng9 + 8) continue;
     if (Math.abs(t.z - this.z) > 13) continue;
     if (Math.abs(t.y - this.y) > 26) continue;
     this.hitDone = true;
@@ -1825,8 +1864,8 @@ Fighter.prototype.tryHit = function(sp){
     if (this.isPlayer && playerNearGraffiti()) dmg = Math.max(1, Math.round(dmg*0.75));
     if (this.weapon && this.weapon.type==='taser' && this.attackKind.indexOf('baton')===0) dmg = Math.round(dmg*0.6);
     if (this.charId === 'k9' && this.weapon && this.attackKind.indexOf('bite') === 0){
-      if (this.weapon.type === 'matraque') dmg += 4;         // matraque en gueule
-      else if (this.weapon.type === 'pancarte') dmg += 3;    // pancarte en gueule
+      if (this.weapon.type === 'matraque') dmg += (game.shop.matplus ? 7 : 4);   // matraque en gueule
+      else if (this.weapon.type === 'pancarte') dmg += (game.shop.panobli ? 6 : 3);   // pancarte en gueule
       else if (this.weapon.type === 'taser') dmg = Math.round(dmg * 0.8);
     }
     var k9bite = this.charId === 'k9' && this.attackKind.indexOf('bite') === 0;
@@ -1843,7 +1882,7 @@ Fighter.prototype.tryHit = function(sp){
     var taser = this.isPlayer && this.charId === 'crs' && game.loadout.matraque === 1 && this.attackKind === 'punch3' && !t.boss;
     if (taser) kdF = false;
     var otgHit = this.attackKind === 'stomp' && (t.state === 'down' || t.state === 'cuffed');
-    if (this.isPlayer) this.fury = Math.min(100, (this.fury || 0) + 3);
+    if (this.isPlayer) this.fury = Math.min(100, (this.fury || 0) + (game.shop.sangfroid ? 4 : 3));
     if (this.isPlayer && this.holyT > 0 && !t.isPlayer && t.state !== 'cuffed'){
       t.burnT = 3;
     }
@@ -2364,7 +2403,7 @@ Fighter.prototype.aiControl = function(dt, slow){
     this.sloganT = rnd(7, 13);
     var et0 = ENEMY_TYPES[this.kind];
     if (et0 && et0.slogans && Math.random() < 0.65){
-      addFloater(this.x, this.screenY()-48, et0.slogans[irnd(0, et0.slogans.length-1)], '#f2d9a0');
+      addFloater(this.x, this.screenY()-48, et0.slogans[irnd(0, et0.slogans.length-1)], '#f2d9a0', 1.4);
     }
   }
 
@@ -3059,7 +3098,7 @@ function spawnItem(type, x, z, dropY, uses){
     type: type, x: x, z: z,
     y: dropY || 0, vy: 0,
     falling: (dropY||0) > 0,
-    uses: uses != null ? uses : (type==='matraque' ? 12 : (type==='taser' ? 8 : 1)),
+    uses: uses != null ? uses : (type==='matraque' ? (game.shop.matplus ? 18 : 12) : (type==='taser' ? 8 : 1)),
     remove: false, bobT: Math.random()*6
   });
 }
@@ -3154,7 +3193,13 @@ function updateProjectiles(dt){
         } else if (p.type==='merguez'){
           t.hurt(9, 55, p.vx>0?1:-1, false, 'enemy');
         } else if (p.type==='lbd'){
-          t.hurt(10, 70, p.vx>0?1:-1, true, p.owner.isPlayer ? 'player' : 'enemy');
+          var lDmg9 = (p.owner.isPlayer && game.shop.lbdplus) ? 15 : 10;
+          var lKb9 = (p.owner.isPlayer && game.shop.lbdplus) ? 140 : 70;
+          t.hurt(lDmg9, lKb9, p.vx>0?1:-1, true, p.owner.isPlayer ? 'player' : 'enemy');
+          if (p.owner.isPlayer && game.shop.elec && !t.isPlayer){
+            t.zapT = 0.5;
+            addParticles(t.x, t.z, 8, 16, '#7ec8ff', 80);
+          }
           addFloater(t.x, t.screenY()-52, 'A TERRE !', '#ffd166');
         } else if (p.type==='crochet'){
           var ferre = t.hurt(8, 0, p.vx>0?1:-1, false, 'enemy');
@@ -3175,7 +3220,7 @@ function updateProjectiles(dt){
     if (p.y <= 0 || hit){
       if (p.type==='grenade'){
         var lsk = p.owner && p.owner.isPlayer ? game.loadout.lacrymo : 0;
-        game.clouds.push({ x:p.x, z:p.z, r:6, rMax: lsk===2 ? 48 : 38, t:4.2, tick:0, skin: lsk });
+        game.clouds.push({ x:p.x, z:p.z, r:6, rMax: (lsk===2 ? 48 : 38) * (game.shop.lacryxxl ? 1.35 : 1), t: 4.2 * (game.shop.lacryxxl ? 1.3 : 1), tick:0, skin: lsk });
         SFX.gaz();
         SFX.gas();
       } else if (p.type==='extincteur'){
@@ -3483,6 +3528,7 @@ function resetGame(){
   game.ripou = 0; game.honneur = 0;
   game.horde = false;
   game.meute = []; game.flash49 = 0;
+  game.shop = {}; game.shopSel = 0; game.shopRefusT = 0;
   game.slowmoT = 0;
   game.barriers = []; game.graffitis = [];
   var cdef = CHARS[game.selChar] || CHARS[0];
@@ -3605,6 +3651,131 @@ function pickChoices(p){
     out.push(src.splice(irnd(0, src.length-1), 1)[0]);
   }
   return out;
+}
+
+/* ============ LE COMMISSARIAT & LA VILLE (entre les tableaux) ============ */
+var DIALOGUES = [
+  { intro: 'Beau boulot sur la rue commercante. La prefecture veut des CHIFFRES. Combien d interpellations je note ?',
+    choix: [
+      { t: 'Le double. Les stats, ca se cuisine.', r: 2, rep: 'J aime ta vision comptable. Prends un cafe. La machine est en panne depuis 2019.' },
+      { t: 'La verite, chef. Meme si elle est petite.', h: 2, rep: 'La verite ?! ...Bon. Je note : donnees en cours de consolidation.' },
+      { t: 'J ai perdu le compte en nourrissant les pigeons.', h: 1, rep: 'Les pigeons. Evidemment. File avant que je te mute a la circulation.' }
+    ] },
+  { intro: 'BFM veut une interview sur la situation place de la Republique. Je leur dis quoi ?',
+    choix: [
+      { t: 'Que tout est calme. Coupez au montage.', r: 2, rep: 'Parfait. Le calme, ca se decrete. Comme le reste.' },
+      { t: 'Que la presse est libre de filmer.', h: 2, rep: 'Libre de... tu es sur que tu es de la maison, toi ?' },
+      { t: 'Passez-leur le stagiaire, il a une belle voix.', h: 1, rep: 'Le stagiaire. Pourquoi pas. Il ne sait rien, il ne risque rien.' }
+    ] },
+  { intro: 'Le prefet veut nettoyer le campus AVANT la visite ministerielle. Methode douce ou methode Deschamps ?',
+    choix: [
+      { t: 'Deschamps. On compte les points apres.', r: 2, rep: 'Voila un homme de terrain. Signe ici, ici, et surtout ne signe rien.' },
+      { t: 'Douce. Les etudiants ont des examens.', h: 2, rep: 'Des examens. C est mignon. Bon, mais si ca deborde, c etait TON idee.' },
+      { t: 'On repeint le campus en bleu, ni vu ni connu.', r: 1, rep: 'Le camouflage budgetaire. Tu iras loin, petit.' }
+    ] },
+  { intro: 'La raffinerie bloque tout. Le ministre veut du carburant, les grevistes veulent des sous. Toi, tu veux quoi ?',
+    choix: [
+      { t: 'Une prime d essence. Litteralement.', r: 2, rep: 'Note pour plus tard : surveiller tes notes de frais.' },
+      { t: 'Que personne ne finisse au brasier.', h: 2, rep: 'De l humanisme dans la maison. Je vais devoir ouvrir une enquete.' },
+      { t: 'Un rond-point rien qu a moi.', h: 1, rep: 'Un rond-point. Le reve francais dans toute sa splendeur.' }
+    ] },
+  { intro: 'Derniere ligne droite : une rave sauvage. Le DJ refuse de couper le son. On a essaye de negocier : il a mis le volume plus fort.',
+    choix: [
+      { t: 'Je coupe le courant du departement.', r: 2, rep: 'Radical. J aime. Les hopitaux ont des generateurs, non ?' },
+      { t: 'Je demande UNE derniere chanson, pour la forme.', h: 2, rep: 'Une derniere chanson... Si tu danses, je veux des photos.' },
+      { t: 'On envoie le stagiaire en eclaireur.', r: 1, rep: 'Encore lui. Il commence a comprendre pourquoi le poste etait vacant.' }
+    ] }
+];
+var SHOP_ARMES = [
+  { id:'matplus',  nom:'MATRAQUE RENFORCEE', prix:800,
+    txt:'Fibre composite. +75% de degats, durent 18 coups.' },
+  { id:'panobli',  nom:'PANNEAU BLINDE', prix:700,
+    txt:'Le panneau SENS INTERDIT double face. +3 coups, frappe plus fort.' },
+  { id:'lbdplus',  nom:'LBD SURPRESSE', prix:1000,
+    txt:'Hors norme CE. Balles a 15 degats, recul double.' },
+  { id:'lacryxxl', nom:'LACRYMO XXL', prix:900,
+    txt:'Format familial. Nuage +35%, duree +30%.' },
+  { id:'chargeur', nom:'RECHARGE ECLAIR', prix:1200,
+    txt:'Etui huile. Le LBD revient 35% plus vite.' }
+];
+var SHOP_ACADEMIE = [
+  { id:'allonge',  nom:'ALLONGE DU DOJO', prix:900,
+    txt:'Epaules deverrouillees : portee de frappe +20%.' },
+  { id:'elec',     nom:'BALLES ELECTRIFIEES', prix:1200,
+    txt:'Le LBD paralyse la cible une demi-seconde. Grille les circuits.' },
+  { id:'poigne',   nom:'POIGNE DE FER', prix:800,
+    txt:'Menottage 35% plus rapide. Clic-clac.' },
+  { id:'souffle',  nom:'SOUFFLE DU DOJO', prix:1000,
+    txt:'Respiration de sergent : endurance +60% plus vite.' },
+  { id:'sangfroid',nom:'SANG FROID', prix:1100,
+    txt:'L adrenaline monte 30% plus vite. Restez fache.' }
+];
+function shopListe(){
+  return game.lieu && game.lieu.id === 'armurerie' ? SHOP_ARMES : SHOP_ACADEMIE;
+}
+function shopAcheter(){
+  var it = shopListe()[game.shopSel];
+  if (!it) return;
+  if (game.shop[it.id]){
+    addFloater(0, 0, '', '#fff');   // rien : deja pris (le floater ne sert pas ici)
+    game.floaters.pop();
+    SFX.block();
+    return;
+  }
+  if (game.score < it.prix){
+    game.shopRefusT = 0.5;
+    SFX.block();
+    return;
+  }
+  game.score -= it.prix;
+  game.shop[it.id] = true;
+  SFX.pickup();
+  stingerCuff();
+}
+function openCommissariat(nextWave){
+  game.fadeT = 0; game.fadeSwapped = false;   // le fondu est solde : le hub prend l ecran
+  game.villeWave = nextWave;
+  var di = Math.min(DIALOGUES.length - 1, Math.max(0, game.zone - 1));
+  game.dlg = { set: DIALOGUES[di], step: 0, sel: 0 };
+  game.state = 'commissariat';
+}
+function dlgChoisir(){
+  var c = game.dlg.set.choix[game.dlg.sel];
+  if (c.r){ game.ripou = Math.min(10, (game.ripou || 0) + c.r); }
+  if (c.h){ game.honneur = Math.min(10, (game.honneur || 0) + c.h); }
+  game.dlg.step = 1;
+  SFX.pickup();
+}
+/* ---------- LA VILLE : point & click ---------- */
+var VILLE_SPOTS = [
+  { id: 'parlement',  nom: 'LE PARLEMENT',   x: 42,  y: 64,  w: 108, h: 74 },
+  { id: 'armurerie',  nom: 'L ARMURERIE',    x: 186, y: 78,  w: 96,  h: 60 },
+  { id: 'academie',   nom: 'L ACADEMIE',     x: 318, y: 62,  w: 116, h: 76 },
+  { id: 'marchand',   nom: 'LE MARCHAND',    x: 84,  y: 168, w: 100, h: 58 },
+  { id: 'manif',      nom: 'MANIFESTATION',  x: 268, y: 164, w: 150, h: 66 }
+];
+function ouvrirVille(){
+  game.state = 'ville';
+  game.villeSel = 4;   // la manif pre-selectionnee : Entree = on y va
+}
+function villeActiver(){
+  var sp = VILLE_SPOTS[game.villeSel];
+  if (sp.id === 'manif'){
+    game.state = 'play';
+    game.fadeT = 0.5; game.fadeSwapped = true;   // fondu d entree sur le nouveau tableau
+    startWave(game.villeWave || (game.wave + 1));
+  } else {
+    game.lieu = sp;
+    game.shopSel = 0;
+    game.state = 'lieu';
+  }
+  SFX.pickup();
+}
+function canvasLogique(e){
+  var r = canvas.getBoundingClientRect();
+  var cx = (e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0].clientX)) - r.left;
+  var cy = (e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0].clientY)) - r.top;
+  return { x: cx / r.width * W, y: cy / r.height * H };
 }
 
 /* ============ LES POUVOIRS : un ultime par personnage ============ */
@@ -3988,7 +4159,8 @@ function metDistCurve(soft){
 }
 function metMode(){
   if (game.state === 'title' || game.state === 'scores' || game.state === 'armory' ||
-      game.state === 'options' || game.state === 'charsel') return 'title';
+      game.state === 'options' || game.state === 'charsel' ||
+      game.state === 'commissariat' || game.state === 'ville' || game.state === 'lieu') return 'title';
   if (game.state !== 'play' && game.state !== 'levelup' && game.state !== 'pause') return 'off';
   for (var i=0;i<game.fighters.length;i++){
     var bf = game.fighters[i];
@@ -4347,7 +4519,7 @@ function update(dt){
         if (zpl[zi] && !zpl[zi].dead){ zpl[zi].x = 26 + zi*22; zpl[zi].setState('idle'); }
       }
       game.camX = 0;
-      startWave(game.pendingWave);
+      openCommissariat(game.pendingWave);
     }
     if (game.fadeT < 0) game.fadeT = 0;
   }
@@ -8760,6 +8932,261 @@ function draw(){
     g.textAlign='left';
   }
 
+  if (game.state === 'commissariat'){
+    g.fillStyle = '#141018'; g.fillRect(0, 0, W, H);
+    // le bureau : lambris, drapeau, portrait, machine a cafe
+    g.fillStyle = '#2a2030'; g.fillRect(0, 0, W, 118);
+    g.fillStyle = '#3a2c40'; g.fillRect(0, 112, W, 6);
+    for (var lb8 = 0; lb8 < 12; lb8++){ g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(lb8 * 42, 0); g.lineTo(lb8 * 42, 112); g.stroke(); }
+    // drapeau
+    g.fillStyle = '#3a5da8'; g.fillRect(56, 22, 12, 30);
+    g.fillStyle = '#e8e4d8'; g.fillRect(68, 22, 12, 30);
+    g.fillStyle = '#c0392b'; g.fillRect(80, 22, 12, 30);
+    g.strokeStyle = '#6a5a3a'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(54, 16); g.lineTo(54, 84); g.stroke();
+    // portrait au mur (cadre dore, silhouette)
+    g.strokeStyle = '#b39a4a'; g.lineWidth = 2; g.strokeRect(356, 20, 40, 48);
+    g.fillStyle = '#241c2a'; g.fillRect(358, 22, 36, 44);
+    g.fillStyle = '#4a3c52'; g.beginPath(); g.arc(376, 38, 8, 0, TAU); g.fill();
+    g.fillRect(364, 46, 24, 18);
+    // le bureau + le commissaire
+    g.fillStyle = '#4a3626'; g.fillRect(120, 96, 220, 10);
+    g.fillStyle = '#3a2a1e'; g.fillRect(120, 106, 220, 40);
+    g.save();
+    g.translate(230, 96);
+    g.scale(1.5, 1.5);
+    drawCeremonyGuy(g, { suit: '#3a4252', hair: '#8b8578', stubble: true, angry: 0.35,
+                         armF: [7, 24], armB: [-6, 23] });
+    g.restore();
+    // tasse de cafe fumante
+    g.fillStyle = '#e8e4d8'; g.fillRect(302, 88, 8, 7);
+    g.strokeStyle = '#e8e4d8'; g.lineWidth = 1; g.beginPath(); g.arc(312, 91, 2.6, -1.2, 1.2); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.25)';
+    g.beginPath(); g.moveTo(305, 84); g.quadraticCurveTo(303 + Math.sin(game.time*3)*2, 78, 306, 72); g.stroke();
+    // cartouche de dialogue
+    g.fillStyle = 'rgba(8,8,14,0.92)';
+    rrPath(g, 24, 126, W - 48, 128, 6); g.fill();
+    g.strokeStyle = 'rgba(255,209,102,0.35)'; g.lineWidth = 1;
+    rrPath(g, 24, 126, W - 48, 128, 6); g.stroke();
+    g.textAlign = 'left';
+    g.fillStyle = '#ffd166'; g.font = 'bold 8px monospace';
+    g.fillText('LE COMMISSAIRE', 36, 142);
+    var dlgD = game.dlg;
+    g.fillStyle = '#dfe6f2'; g.font = '7px monospace';
+    var texte8 = dlgD.step === 0 ? dlgD.set.intro : dlgD.set.choix[dlgD.sel].rep;
+    // decoupage en lignes de ~64 caracteres
+    var mots8 = texte8.split(' '), ligne8 = '', ly8 = 154;
+    for (var w8 = 0; w8 < mots8.length; w8++){
+      if ((ligne8 + mots8[w8]).length > 62){ g.fillText(ligne8, 36, ly8); ly8 += 10; ligne8 = ''; }
+      ligne8 += mots8[w8] + ' ';
+    }
+    g.fillText(ligne8, 36, ly8);
+    if (dlgD.step === 0){
+      for (var c8 = 0; c8 < 3; c8++){
+        var cy8 = 172 + c8 * 22;
+        var sel8 = dlgD.sel === c8;
+        if (sel8){ g.fillStyle = 'rgba(255,209,102,0.10)'; rrPath(g, 32, cy8 - 11, W - 64, 18, 3); g.fill(); }
+        g.fillStyle = sel8 ? '#ffd166' : '#9aa5bd';
+        g.font = sel8 ? 'bold 7px monospace' : '7px monospace';
+        var badge8 = dlgD.set.choix[c8].r ? '[RIPOU +' + dlgD.set.choix[c8].r + ']' : '[HONNEUR +' + dlgD.set.choix[c8].h + ']';
+        g.fillText((sel8 ? '\u25B8 ' : '  ') + dlgD.set.choix[c8].t + '  ' + badge8, 40, cy8);
+      }
+      g.textAlign = 'center';
+      g.fillStyle = '#4d5871'; g.font = '6px monospace';
+      g.fillText('\u2191\u2193 CHOISIR \u00B7 ENTREE VALIDER \u00B7 (ou toucher)', W/2, 246);
+    } else {
+      g.textAlign = 'center';
+      g.fillStyle = Math.floor(game.time*2)%2===0 ? '#ffd166' : '#8b7333';
+      g.font = 'bold 7px monospace';
+      g.fillText('ENTREE \u2014 SORTIR EN VILLE', W/2, 246);
+    }
+    g.textAlign = 'left';
+  }
+
+  if (game.state === 'ville'){
+    // la carte de la ville, vue de haut
+    g.fillStyle = '#101620'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#1a2230';
+    g.fillRect(0, 140, W, 22);                 // grande avenue
+    g.fillRect(160, 0, 20, H);                 // rue verticale
+    g.fillRect(300, 40, 16, 200);
+    g.strokeStyle = 'rgba(255,209,102,0.25)'; g.lineWidth = 1;
+    g.setLineDash([4, 5]);
+    g.beginPath(); g.moveTo(0, 151); g.lineTo(W, 151); g.stroke();
+    g.setLineDash([]);
+    g.textAlign = 'center';
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 5; g.shadowOffsetY = 2;
+    g.fillStyle = '#ffd166'; g.font = 'bold 11px monospace';
+    g.fillText('LA VILLE', W/2, 30);
+    g.restore();
+    g.fillStyle = '#8b96ad'; g.font = '6px monospace';
+    g.fillText('OU ALLER, CAPITAINE ?', W/2, 42);
+    for (var v8 = 0; v8 < VILLE_SPOTS.length; v8++){
+      var sp8 = VILLE_SPOTS[v8];
+      var on8 = game.villeSel === v8;
+      g.fillStyle = on8 ? 'rgba(255,209,102,0.14)' : 'rgba(30,38,54,0.9)';
+      rrPath(g, sp8.x, sp8.y, sp8.w, sp8.h, 5); g.fill();
+      g.strokeStyle = on8 ? '#ffd166' : 'rgba(120,132,160,0.5)';
+      g.lineWidth = on8 ? 1.6 : 1;
+      rrPath(g, sp8.x, sp8.y, sp8.w, sp8.h, 5); g.stroke();
+      var icx = sp8.x + sp8.w / 2, icy = sp8.y + sp8.h / 2 - 8;
+      g.fillStyle = on8 ? '#ffd166' : '#8b96ad';
+      if (sp8.id === 'parlement'){
+        g.beginPath(); g.arc(icx, icy + 2, 9, Math.PI, 0); g.fill();
+        g.fillRect(icx - 12, icy + 2, 24, 4);
+        g.fillRect(icx - 1.4, icy - 13, 2.8, 5);
+      } else if (sp8.id === 'armurerie'){
+        g.beginPath();
+        g.moveTo(icx, icy - 8); g.lineTo(icx + 7, icy - 4); g.lineTo(icx + 6, icy + 5);
+        g.lineTo(icx, icy + 9); g.lineTo(icx - 6, icy + 5); g.lineTo(icx - 7, icy - 4);
+        g.closePath(); g.fill();
+      } else if (sp8.id === 'academie'){
+        g.fillRect(icx - 9, icy - 2, 18, 3);
+        g.beginPath(); g.moveTo(icx - 12, icy - 2); g.lineTo(icx, icy - 9); g.lineTo(icx + 12, icy - 2); g.closePath(); g.fill();
+        g.fillRect(icx + 6, icy - 2, 1.4, 8);
+      } else if (sp8.id === 'marchand'){
+        g.fillRect(icx - 9, icy - 4, 18, 3);
+        for (var a8 = 0; a8 < 3; a8++){
+          g.beginPath(); g.arc(icx - 6 + a8 * 6, icy - 3, 3, Math.PI, 0); g.fill();
+        }
+        g.fillRect(icx - 8, icy - 1, 2, 9); g.fillRect(icx + 6, icy - 1, 2, 9);
+      } else {
+        // manifestation : poing + flamme animee
+        g.fillRect(icx - 3, icy - 2, 6, 8);
+        g.fillRect(icx - 5, icy - 6, 10, 6);
+        var fl8 = Math.sin(game.time * 7) * 2;
+        g.fillStyle = '#ff8a3c';
+        g.beginPath();
+        g.moveTo(icx + 9, icy + 6);
+        g.quadraticCurveTo(icx + 13 + fl8, icy - 4, icx + 10, icy - 8);
+        g.quadraticCurveTo(icx + 12, icy - 1, icx + 7, icy + 2);
+        g.closePath(); g.fill();
+      }
+      g.fillStyle = on8 ? '#ffd166' : '#9aa5bd';
+      g.font = on8 ? 'bold 7px monospace' : '7px monospace';
+      g.fillText(sp8.nom, icx, sp8.y + sp8.h - 8);
+    }
+    g.fillStyle = '#4d5871'; g.font = '6px monospace';
+    g.fillText('FLECHES + ENTREE \u00B7 ou TOUCHER un lieu \u00B7 MANIFESTATION = tableau suivant', W/2, 254);
+    g.textAlign = 'left';
+  }
+
+  if (game.state === 'lieu' && game.lieu && (game.lieu.id === 'armurerie' || game.lieu.id === 'academie')){
+    var estArm9 = game.lieu.id === 'armurerie';
+    g.fillStyle = estArm9 ? '#12161e' : '#141810'; g.fillRect(0, 0, W, H);
+    // l atmosphere : rateliers ou tatamis
+    if (estArm9){
+      for (var ra9 = 0; ra9 < 4; ra9++){
+        g.fillStyle = '#1c2230'; g.fillRect(18, 60 + ra9 * 44, 130, 5);
+        for (var rb9 = 0; rb9 < 4; rb9++){
+          g.fillStyle = '#2b3346';
+          g.fillRect(28 + rb9 * 30, 40 + ra9 * 44, 4, 22);
+        }
+      }
+    } else {
+      for (var ta9 = 0; ta9 < 3; ta9++){
+        g.fillStyle = ta9 % 2 === 0 ? '#1c2214' : '#181e10';
+        g.fillRect(14, 130 + ta9 * 34, 140, 30);
+        g.strokeStyle = '#0e120a'; g.strokeRect(14, 130 + ta9 * 34, 140, 30);
+      }
+    }
+    // le PNJ vendeur
+    g.save();
+    g.translate(84, 116);
+    g.scale(1.6, 1.6);
+    drawCeremonyGuy(g, estArm9
+      ? { suit: '#232f4b', hair: '#3a3f4d', angry: 0.15, armF: [8, 22], armB: [-7, 24] }
+      : { suit: '#3d4426', hair: '#23261c', stubble: true, angry: 0.6, armF: [9, 26], armB: [-8, 20] });
+    g.restore();
+    g.textAlign = 'center';
+    g.fillStyle = '#ffd166'; g.font = 'bold 8px monospace';
+    g.fillText(estArm9 ? 'BRIGADIER MOREAU' : 'LE SERGENT INSTRUCTEUR', 84, 148);
+    g.fillStyle = '#8b96ad'; g.font = '6px monospace';
+    g.fillText(estArm9 ? '\u00AB Tout est homologue. Enfin presque. \u00BB' : '\u00AB LA DOULEUR EST UNE INFORMATION ! \u00BB', 84, 160);
+    // titre + solde
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 5; g.shadowOffsetY = 2;
+    g.fillStyle = '#ffd166'; g.font = 'bold 11px monospace';
+    g.fillText(game.lieu.nom, W/2 + 60, 36);
+    g.restore();
+    g.fillStyle = '#7ec8ff'; g.font = 'bold 7px monospace';
+    g.fillText('SOLDE : ' + game.score + ' PTS', W/2 + 60, 52);
+    if (game.shopRefusT > 0){
+      game.shopRefusT -= 1/60;
+      if (Math.floor(game.time * 8) % 2 === 0){
+        g.fillStyle = '#ff6b5e'; g.font = 'bold 6px monospace';
+        g.fillText('PAS ASSEZ DE POINTS, CAPITAINE.', W/2 + 60, 64);
+      }
+    }
+    // les articles
+    var lst9 = shopListe();
+    g.textAlign = 'left';
+    for (var it9 = 0; it9 < lst9.length; it9++){
+      var art9 = lst9[it9];
+      var iy9 = 92 + it9 * 26;
+      var sel9 = game.shopSel === it9;
+      var pris9 = !!game.shop[art9.id];
+      if (sel9){
+        g.fillStyle = 'rgba(255,209,102,0.10)';
+        rrPath(g, 176, iy9 - 13, W - 206, 24, 4); g.fill();
+        g.strokeStyle = 'rgba(255,209,102,0.5)'; g.lineWidth = 1;
+        rrPath(g, 176, iy9 - 13, W - 206, 24, 4); g.stroke();
+      }
+      g.fillStyle = pris9 ? '#5a6478' : (sel9 ? '#ffd166' : '#c9d2e4');
+      g.font = sel9 ? 'bold 7px monospace' : '7px monospace';
+      g.fillText((sel9 ? '\u25B8 ' : '  ') + art9.nom, 184, iy9 - 2);
+      g.textAlign = 'right';
+      if (pris9){
+        g.fillStyle = '#63d68f'; g.font = 'bold 7px monospace';
+        g.fillText('ACQUIS', W - 40, iy9 - 2);
+      } else {
+        g.fillStyle = game.score >= art9.prix ? '#7ec8ff' : '#8b5a5a';
+        g.font = 'bold 7px monospace';
+        g.fillText(art9.prix + ' PTS', W - 40, iy9 - 2);
+      }
+      g.textAlign = 'left';
+      if (sel9){
+        g.fillStyle = '#8b96ad'; g.font = '6px monospace';
+        g.fillText(art9.txt, 184, iy9 + 8);
+      }
+    }
+    // retour
+    var rB9 = Math.floor(game.time*2)%2===0;
+    g.textAlign = 'center';
+    g.fillStyle = rB9 ? 'rgba(255,209,102,0.12)' : 'rgba(255,209,102,0.06)';
+    rrPath(g, W/2 - 70, 224, 140, 24, 5); g.fill();
+    g.strokeStyle = '#ffd166'; g.lineWidth = 1.2;
+    rrPath(g, W/2 - 70, 224, 140, 24, 5); g.stroke();
+    g.fillStyle = '#ffd166'; g.font = 'bold 8px monospace';
+    g.fillText('RETOUR EN VILLE  (ECHAP)', W/2, 239);
+    g.fillStyle = '#4d5871'; g.font = '6px monospace';
+    g.fillText('\u2191\u2193 PARCOURIR \u00B7 ENTREE ACHETER \u00B7 permanent pour cette partie', W/2, 260);
+    g.textAlign = 'left';
+  }
+  else if (game.state === 'lieu'){
+    g.fillStyle = '#101620'; g.fillRect(0, 0, W, H);
+    g.textAlign = 'center';
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 5; g.shadowOffsetY = 2;
+    g.fillStyle = '#ffd166'; g.font = 'bold 12px monospace';
+    g.fillText(game.lieu ? game.lieu.nom : '', W/2, 96);
+    g.restore();
+    g.fillStyle = '#8b96ad'; g.font = '7px monospace';
+    g.fillText('EN TRAVAUX \u2014 LE COMMISSAIRE N A PAS ENCORE SIGNE LE BUDGET.', W/2, 128);
+    g.fillStyle = '#5a6478'; g.font = '6px monospace';
+    g.fillText('(bientot : des choses a voir, a acheter, a signer ici)', W/2, 142);
+    var rBtn = Math.floor(game.time*2)%2===0;
+    g.fillStyle = rBtn ? 'rgba(255,209,102,0.12)' : 'rgba(255,209,102,0.06)';
+    rrPath(g, W/2 - 70, 208, 140, 24, 5); g.fill();
+    g.strokeStyle = '#ffd166'; g.lineWidth = 1.2;
+    rrPath(g, W/2 - 70, 208, 140, 24, 5); g.stroke();
+    g.fillStyle = '#ffd166'; g.font = 'bold 8px monospace';
+    g.fillText('RETOUR EN VILLE', W/2, 223);
+    g.textAlign = 'left';
+  }
+
   if (game.state==='binds'){
     g.fillStyle='rgba(6,8,16,0.94)'; g.fillRect(0,0,W,H);
     g.textAlign='center';
@@ -9149,9 +9576,43 @@ function drawFinScene(g){
 function toggleMute(){
   muted = !muted;
 }
-canvas.addEventListener('click', function(){
+canvas.addEventListener('click', function(e){
   if (game.aideOpen){ closeAide(); return; }
-  if (game.state==='title' || game.state==='gameover' || game.state==='victory') onEnter();
+  if (game.state==='title' || game.state==='gameover' || game.state==='victory'){ onEnter(); canvas.focus(); return; }
+  var pt = canvasLogique(e);
+  if (game.state === 'ville'){
+    for (var vi = 0; vi < VILLE_SPOTS.length; vi++){
+      var sp = VILLE_SPOTS[vi];
+      if (pt.x >= sp.x && pt.x <= sp.x + sp.w && pt.y >= sp.y && pt.y <= sp.y + sp.h){
+        game.villeSel = vi;
+        villeActiver();
+        break;
+      }
+    }
+  } else if (game.state === 'lieu'){
+    var estShop9c = game.lieu && (game.lieu.id === 'armurerie' || game.lieu.id === 'academie');
+    if (estShop9c){
+      for (var si9 = 0; si9 < shopListe().length; si9++){
+        var sy9 = 92 + si9 * 26;
+        if (pt.x >= 180 && pt.x <= W - 30 && pt.y >= sy9 - 12 && pt.y <= sy9 + 10){
+          game.shopSel = si9; shopAcheter(); break;
+        }
+      }
+    }
+    if (pt.x >= W/2 - 70 && pt.x <= W/2 + 70 && pt.y >= 224 && pt.y <= 248){ game.state = 'ville'; SFX.pickup(); }
+  } else if (game.state === 'commissariat'){
+    var dlg = game.dlg;
+    if (dlg.step === 0){
+      for (var ci = 0; ci < 3; ci++){
+        var cy0 = 172 + ci * 22;
+        if (pt.y >= cy0 - 10 && pt.y <= cy0 + 8 && pt.x >= 40 && pt.x <= W - 40){
+          dlg.sel = ci; dlgChoisir(); break;
+        }
+      }
+    } else {
+      ouvrirVille();
+    }
+  }
   canvas.focus();
 });
 
@@ -9192,8 +9653,14 @@ window.__crs = {
   stingerLevelup: stingerLevelup,
   startHorde: startHorde,
   tryPower: tryPower,
-  updatePowers: updatePowers,
-  tryPower: tryPower,
+  openCommissariat: openCommissariat,
+  ouvrirVille: ouvrirVille,
+  villeActiver: villeActiver,
+  VILLE_SPOTS: VILLE_SPOTS,
+  SHOP_ARMES: SHOP_ARMES,
+  SHOP_ACADEMIE: SHOP_ACADEMIE,
+  shopAcheter: shopAcheter,
+  DIALOGUES: DIALOGUES,
   updatePowers: updatePowers,
   stingerCuff: stingerCuff,
   MET_RIFFS: MET_RIFFS,
