@@ -1027,6 +1027,14 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (this.isPlayer && this.up && this.up.armor > 0 && !blocked && dmg > 0){
     dmg = Math.max(1, Math.round(dmg * (1 - this.up.armor)));
   }
+  if (this.kind === 'clochard' && dmg > 0 && !this.isPlayer){
+    spawnItem('piece', clamp(this.x + rnd(-10, 10), 16, MAP_W - 16), clamp(this.z + rnd(-4, 6), Z_MIN, Z_MAX), rnd(18, 30));
+    if (!this.ripouDonne && srcTag === 'player'){
+      this.ripouDonne = true;
+      game.ripou = Math.min(10, (game.ripou || 0) + 1);
+      addFloater(this.x, this.screenY() - 62, 'SERIEUX ?... [RIPOU +1]', '#ff6b5e', 1.3);
+    }
+  }
   if (this.kind === 'drone' && dmg > 0) SFX.clang(0.8);
   if (!this.isPlayer && this.kind === 'agitateur' && dmg > 0){
     this.hitTaken = (this.hitTaken || 0) + 1;
@@ -1099,6 +1107,7 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     blocked = true; // super-armure pacifique : pas de recul, pas de chute
   }
   if (this.boss){ kb *= 0.25; knockdown = false; }
+  if (this.kind === 'clochard'){ kb = 0; knockdown = false; }
   if (!blocked && this.kind === 'journaliste' && srcTag === 'player' && !this.pressHit){
     this.pressHit = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 2);
@@ -1135,6 +1144,11 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
 };
 
 Fighter.prototype.die = function(dirFrom){
+  if (this.kind === 'clochard'){
+    for (var pc3 = 0; pc3 < 3; pc3++){
+      spawnItem('piece', clamp(this.x + rnd(-14, 14), 16, MAP_W - 16), clamp(this.z + rnd(-5, 7), Z_MIN, Z_MAX), rnd(20, 36));
+    }
+  }
   if (this.kind === 'punk'){
     for (var vg2 = 0; vg2 < game.fighters.length; vg2++){
       var cvg2 = game.fighters[vg2];
@@ -1165,7 +1179,7 @@ Fighter.prototype.die = function(dirFrom){
     for (var rd=0; rd<game.fighters.length; rd++){
       var rf = game.fighters[rd];
       if (!rf.isPlayer && !rf.dead && rf !== this && rf.state !== 'cuffed' &&
-          rf.state !== 'flee' && rf.kind !== 'journaliste') resteD++;
+          rf.state !== 'flee' && rf.kind !== 'journaliste' && rf.kind !== 'clochard') resteD++;
     }
     if (resteD === 0){
       game.slowmoT = this.finalBoss ? 1.1 : 0.55;
@@ -1277,6 +1291,10 @@ var ENEMY_TYPES = {
                 slogans:['C EST MON CHIEN QUI DECIDE.','T AS PAS UNE PIECE POUR LE CHIEN ?','LE SYSTEME, C EST TOI.'] },
   chien:      { name:'Chien de punk', hp:20, spd:96, pal:null, atk:['bite2'], chien:true,
                 slogans:['WAF !','GRRRR.'] },
+  clochard:   { name:'Clochard assis', hp:40, spd:0, pal:null, atk:[], clochard:true,
+                slogans:['J ETAIS LA AVANT TOI.','C EST MA RUE.','UNE PIECE, CHEF ?'] },
+  gilet:      { name:'Gilet jaune', hp:35, spd:48, pal:null, atk:['epunch'], gilet:true,
+                slogans:['ON EST LA ! ON EST LA !','ROND-POINT A VIE.','MACRON, ENTENDS-TU ?'] },
   rasta:      { name:'Rasta', hp:70, spd:34, pal:null, atk:['epunch'], rasta:true,
                 slogans:['PAIX, FRERE. ENFIN, PAS POUR TOI.','JAH VOIT TOUT, CAPITAINE.','DOUCEMENT LE MATIN.'] },
   sdf:        { name:'SDF au caddie', hp:85, spd:30, pal:null, atk:['caddie'], sdf:true,
@@ -1293,7 +1311,7 @@ var ENEMY_TYPES = {
   tambour:    { name:'Tambour', hp:45, spd:44, pal:PAL_TAM, atk:['epunch'], tambour:true },
   ecolo:      { name:'Ecologiste',   hp:34, spd:48, pal:PAL_ECO, atk:['sign'], ranged:true,
                 slogans:['ET LA PLANETE ?!','PAS DE PLANETE B !'] },
-  theoricien: { name:'Le Theoricien', hp:150, spd:26, pal:PAL_THE, atk:['slap'], boss:true,
+  theoricien: { name:'Le Theoricien', hp:150, spd:26, pal:PAL_THE, atk:['slap'],
                 slogans:['LISEZ LE CAPITAL !','LA LUTTE FINALE !'] },
   leader:     { name:'Leader', hp:55, spd:44, pal:PAL_LEA, atk:['epunch','epunch2'], leader:true,
                 slogans:['LUTTE FINALE !','TENEZ BON CAMARADES !'] },
@@ -1304,16 +1322,16 @@ var ENEMY_TYPES = {
                 slogans:['VOUS REPRENDREZ BIEN UNE MERGUEZ ?','PERSONNE NE TOUCHE A MON STAND !'] }
 };
 
+var ZONE_POOLS = [
+  ['casseur','casseur','antifa','anarchiste','etudiant'],            // RUE COMMERCANTE
+  ['tambour','casseur','casseur','sdf','etudiant'],                  // LA PLACE
+  ['artiste','costaud','leader','etudiant','etudiant'],              // PARVIS DE L ASSEMBLEE
+  ['theoricien','etudiant','etudiant','etudiant'],                   // LE CAMPUS OCCUPE
+  ['doyen','ouvrier','ouvrier','gilet','etudiant'],                  // LA RAFFINERIE
+  ['rasta','punk','junkie','junkie','etudiant']                      // LA RAVE SAUVAGE
+];
 function wavePool(n){
-  var pool = ['casseur','etudiant','etudiant'];
-  if (n >= 2) pool.push('antifa','anarchiste');
-  if (n >= 3) pool.push('ouvrier','costaud','leader','tambour');
-  if (n >= 4) pool.push('ecolo','ecolo','artiste');
-  if (n >= 5) pool.push('doyen');
-  if (n >= 4) pool.push('punk');
-  if (n >= 6) pool.push('rasta');
-  if (n >= 15) pool.push('junkie','junkie','sdf');
-  return pool;
+  return (ZONE_POOLS[game.zone] || ZONE_POOLS[0]).slice();
 }
 
 var PAL_MIN = { suit:'#2a3550', suitD:'#222b42', skin:'#e8c19a', boot:'#1b1e26', hair:'#e8c86a',
@@ -1444,6 +1462,31 @@ Fighter.prototype.update = function(dt){
     if (Math.random() < 0.12) game.particles.push({ x:this.x+rnd(-14,14), z:this.z+rnd(-8,8), y:rnd(2,10),
       vx:0, vy:8, vz:0, t:0.6, col:['#63d68f','#ffd166','#c0392b'][irnd(0,2)] });
   }
+  if (!this.isPlayer && this.kind === 'gilet' && this.boomT > 0 && !this.dead){
+    if (this.state === 'fall' || this.state === 'down' || this.state === 'cuffed' || this.zapT > 0){
+      this.boomT = 0;                            // mis a terre : DESAMORCE
+      addFloater(this.x, this.screenY() - 52, 'DESAMORCE...', '#7ec8ff', 1.1);
+    } else {
+      this.boomT -= dt;
+      this.vx = 0;
+      if (this.boomT <= 0){
+        addFloater(this.x, this.screenY() - 60, 'EXPLOSION !', '#ff8a3c', 1.3);
+        SFX.boom();
+        game.shake = Math.max(game.shake, 5);
+        addParticles(this.x, this.z, 26, 14, '#ffd23f', 120);
+        addParticles(this.x, this.z, 18, 10, '#ff8a3c', 100);
+        for (var bx3 = 0; bx3 < game.fighters.length; bx3++){
+          var bt3 = game.fighters[bx3];
+          if (bt3 === this || bt3.dead || bt3.kind === 'clochard' || bt3.kind === 'journaliste' || bt3.state === 'cuffed') continue;
+          if (Math.abs(bt3.x - this.x) < 36 && Math.abs(bt3.z - this.z) < 16){
+            bt3.hurt(bt3.isPlayer ? 18 : 25, 220, bt3.x >= this.x ? 1 : -1, true, 'enemy');
+          }
+        }
+        this.hp = 0;
+        this.die(1);
+      }
+    }
+  }
   if (this.zapT > 0){
     this.zapT -= dt;
     this.vx = 0;
@@ -1491,6 +1534,13 @@ Fighter.prototype.update = function(dt){
   }
   if (this.fleeT > 0) this.fleeT -= dt;
   if (this.isPlayer && this.mp < this.mpMax) this.mp = Math.min(this.mpMax, this.mp + (game.shop.souffle ? 8 : 5)*dt);
+  if (this.isPlayer && !this.dead){
+    for (var pc4 = game.items.length - 1; pc4 >= 0; pc4--){
+      var ipc4 = game.items[pc4];
+      if (ipc4.type !== 'piece' || ipc4.falling || ipc4.remove) continue;
+      if (Math.abs(ipc4.x - this.x) < 12 && Math.abs(ipc4.z - this.z) < 9) this.pickUp(ipc4);
+    }
+  }
   var slow = this.gasT > 0 ? 0.55 : 1;
 
   switch(this.state){
@@ -2299,6 +2349,12 @@ Fighter.prototype.pickUp = function(it){
     addFloater(this.x, this.screenY()-48, 'CROC !', '#8fd3f4');
   }
   game.particles.push({ star:true, x:it.x, z:it.z, y:10, t:0.14, r:4.5, col:'#ffd166' });
+  if (it.type==='piece'){
+    game.score += 25;
+    addFloater(this.x, this.screenY()-48, '+25', '#ffd166');
+    beep(1560, 0.06, 'square', 0.05); beep(2080, 0.09, 'square', 0.05, 0, 0.06);
+    it.remove = true; return;
+  }
   if (it.type==='trousse'){
     this.hp = Math.min(this.hpMax, this.hp + 35);
     addFloater(this.x, this.screenY()-50, '+35 PV', '#7ce38b'); SFX.heal();
@@ -2368,6 +2424,22 @@ Fighter.prototype.releaseThrow = function(){
 Fighter.prototype.aiControl = function(dt, slow){
   var p = nearestPlayer(this);
   if (!p){ this.setState('idle'); return; }
+  if (this.kind === 'clochard'){
+    this.setState('idle');
+    return;                                     // il est assis. il reste assis.
+  }
+  if (this.kind === 'gilet'){
+    if (this.boomT > 0) return;                 // il s arme : plus rien ne l interesse
+    var gdx3 = p.x - this.x, gaz3 = Math.abs(p.z - this.z);
+    if ((this.state === 'idle' || this.state === 'walk') && Math.abs(gdx3) < 24 && gaz3 < 10){
+      this.boomT = 1.05;
+      this.vx = 0;
+      this.setState('idle');
+      addFloater(this.x, this.screenY() - 58, 'MACRON !', '#ffd23f', 1.3);
+      beep(880, 0.12, 'square', 0.07); beep(880, 0.12, 'square', 0.07, 0, 0.25); beep(880, 0.12, 'square', 0.07, 0, 0.5);
+      return;
+    }
+  }
   if (this.kind === 'junkie'){
     // demarche erratique : il zigzague vers toi
     this.jitterT = (this.jitterT || 0) - dt;
@@ -2529,7 +2601,7 @@ Fighter.prototype.aiControl = function(dt, slow){
   this.dir = dx >= 0 ? 1 : -1;
 
   // boss : le discours qui repousse
-  if (this.boss && this.shoutCd <= 0 && Math.abs(dx) < 78 && Math.abs(dz) < 26){
+  if ((this.boss || this.kind === 'theoricien') && this.shoutCd <= 0 && Math.abs(dx) < 78 && Math.abs(dz) < 26){
     this.shoutCd = 4.5;
     this.setState('shout'); this.hitDone = false;
     addFloater(this.x, this.screenY()-58, 'DISCOURS !', '#e0b8ff');
@@ -3137,7 +3209,7 @@ function doShout(f){
 
 /* ---------------- Objets ramassables ---------------- */
 var ITEM_ELEC = { taser: true };   // les outils a attribut electrique
-var ITEM_LABEL = { matraque:'Matraque', bouteille:'Bouteille', grenade:'Grenade lacrymo', trousse:'Trousse de soin', canette:'Canette energisante', pancarte:'Pancarte', taser:'Taser', extincteur:'Extincteur', cafe:'Cafe serre', casque:'Casque de chantier' };
+var ITEM_LABEL = { piece:'Piece', matraque:'Matraque', bouteille:'Bouteille', grenade:'Grenade lacrymo', trousse:'Trousse de soin', canette:'Canette energisante', pancarte:'Pancarte', taser:'Taser', extincteur:'Extincteur', cafe:'Cafe serre', casque:'Casque de chantier' };
 
 function spawnItem(type, x, z, dropY, uses){
   game.items.push({
@@ -3407,11 +3479,16 @@ function startWave(n){
   }
   game.toSpawn = 2 + n + Math.floor(n/2);
   game.event = (n >= 3 && Math.random() < 0.35) ? (Math.random() < 0.5 ? 'pluie' : 'helico') : null;
-  if (n >= 2 && Math.random() < 0.4 && !game.lois.commission){
+  if (game.zone === 3 && Math.random() < 0.65){
+    var clo3 = spawnEnemy('clochard');
+    clo3.x = clamp(rnd(120, MAP_W - 120), 20, MAP_W - 20);
+    clo3.z = clamp(rnd(Z_MIN + 6, Z_MAX - 4), Z_MIN, Z_MAX);
+  }
+  if (game.zone === 1 && Math.random() < 0.55 && !game.lois.commission){
     var jp = spawnEnemy('journaliste');
     jp.pressT = 12;
   }
-  if (n >= 4 && Math.random() < 0.3 && !game.fighters.some(function(df){ return df.kind === 'drone' && !df.dead; })){
+  if (game.zone >= 2 && Math.random() < 0.35 && !game.fighters.some(function(df){ return df.kind === 'drone' && !df.dead; })){
     spawnEnemy('drone');
   }
   if (n === 3 || (game.horde && n % 5 === 0)){
@@ -3475,11 +3552,7 @@ function startWave(n){
     SFX.wave();
     return;
   }
-  if (n % 5 === 0){
-    game.toSpawn = Math.max(2, game.toSpawn - 3);
-    var b = spawnEnemy('theoricien');
-    b.x = clamp(game.camX + W + 30, 40, MAP_W - 30);
-  }
+  // (le Theoricien n est plus scripte : il enseigne desormais au campus, dans le pool)
   game.spawnT = 0.4;
   game.waveBannerT = 1.8;
   SFX.wave();
@@ -3930,7 +4003,7 @@ function tryPower(p){
     addFloater(p.x, p.screenY() - 66, '49.3 GEANT !', '#ffd166');
     for (var i = 0; i < game.fighters.length; i++){
       var t = game.fighters[i];
-      if (t.isPlayer || t.dead || t.kind === 'journaliste' || t.state === 'cuffed' || t.state === 'flee') continue;
+      if (t.isPlayer || t.dead || t.kind === 'journaliste' || t.kind === 'clochard' || t.state === 'cuffed' || t.state === 'flee') continue;
       if (Math.abs(t.x - (game.camX + W / 2)) > W / 2 + 40) continue;
       t.hurt(12, 150, t.x >= p.x ? 1 : -1, true, 'player');
       t.markedT = 5;
@@ -3964,7 +4037,7 @@ function updatePowers(dt){
       p.chargeRepT -= dt;
       for (var j = 0; j < game.fighters.length; j++){
         var t = game.fighters[j];
-        if (t.isPlayer || t.dead || t.kind === 'journaliste' || t.state === 'cuffed' || t.state === 'flee') continue;
+        if (t.isPlayer || t.dead || t.kind === 'journaliste' || t.kind === 'clochard' || t.state === 'cuffed' || t.state === 'flee') continue;
         if (t.pwrHitT > 0) continue;
         if (Math.abs(t.x - p.x) < 15 && Math.abs(t.z - p.z) < 11){
           t.hurt(8, 210, t.x >= p.x ? 1 : -1, true, 'player');
@@ -3990,7 +4063,7 @@ function updatePowers(dt){
       var best = null, bd = 1e9;
       for (var e8 = 0; e8 < game.fighters.length; e8++){
         var te = game.fighters[e8];
-        if (te.isPlayer || te.dead || te.flying || te.kind === 'journaliste' ||
+        if (te.isPlayer || te.dead || te.flying || te.kind === 'journaliste' || te.kind === 'clochard' ||
             te.state === 'cuffed' || te.state === 'flee') continue;
         var dd = Math.abs(te.x - ch.x) + Math.abs(te.z - ch.z);
         if (dd < bd){ bd = dd; best = te; }
@@ -4674,7 +4747,7 @@ function update(dt){
     var actifs0 = 0;
     for (var na0 = 0; na0 < game.fighters.length; na0++){
       var nf0 = game.fighters[na0];
-      if (!nf0.isPlayer && !nf0.dead && nf0.kind !== 'journaliste' && nf0.state !== 'cuffed' && nf0.state !== 'flee') actifs0++;
+      if (!nf0.isPlayer && !nf0.dead && nf0.kind !== 'journaliste' && nf0.kind !== 'clochard' && nf0.state !== 'cuffed' && nf0.state !== 'flee') actifs0++;
     }
     if (game.lois.plansocial && actifs0 >= 4){
       game.spawnT = Math.max(game.spawnT, 0.4);   // les CDD attendent leur tour
@@ -4684,7 +4757,7 @@ function update(dt){
     }
   } else {
     var alive = 0;
-    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed' && game.fighters[i].state !== 'flee' && game.fighters[i].kind !== 'journaliste') alive++;
+    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed' && game.fighters[i].state !== 'flee' && game.fighters[i].kind !== 'journaliste' && game.fighters[i].kind !== 'clochard') alive++;
     if (alive===0 && game.waveBannerT<=0 && !game.goMode && game.fadeT<=0 && !(game.victoryT>0) && game.state==='play') openLevelup(game.wave+1);
   }
 
@@ -5612,6 +5685,75 @@ function drawBodyCasseur(g, f, o){
 }
 
 /* --- etudiant revolte : bonnet rouge, veste verte --- */
+function drawBodyClochard(g, f, o){
+  // assis contre le sol : jambes allongees, dos rond, sebile devant
+  g.save();
+  g.translate(0, 0);
+  // le carton dessous
+  g.fillStyle = '#6a5433';
+  g.fillRect(-9, -1.6, 20, 2.2);
+  // jambes allongees, couverture
+  g.fillStyle = '#3e3a30';
+  rrPath(g, 1, -5.4, 11, 4.6, 2); g.fill();
+  g.fillStyle = '#57503f';
+  rrPath(g, 8.6, -5, 4.4, 4, 1.6); g.fill();     // les pieds sous la couverture
+  // torse voute
+  g.fillStyle = '#4a4436';
+  g.beginPath();
+  g.moveTo(-6.4, -1.4);
+  g.quadraticCurveTo(-8.2, -12.4, -1.4, -14.6);
+  g.lineTo(2.4, -12.8);
+  g.quadraticCurveTo(2.2, -4.6, 2.6, -1.4);
+  g.closePath(); g.fill();
+  // bras sur les genoux
+  g.strokeStyle = '#3a3428'; g.lineWidth = 2.2; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(-2.4, -9.4); g.quadraticCurveTo(3, -8.4, 5.4, -5.4); g.stroke();
+  // tete penchee : bonnet + barbe
+  bEll(g, -1.2, 15.6, 2.2, 2.5, '#8a8578');
+  drawFace(g, 0.6, 15.2, 0.9, { skin: '#c9a582', angry: 0.1, stubble: true });
+  g.fillStyle = '#5a3a3a';
+  bEll(g, 0.2, 17.8, 2.7, 1.6, '#5a3a3a');
+  // LA SEBILE, avec ce qu il reste dedans
+  g.fillStyle = '#8b6a3a';
+  g.beginPath(); g.ellipse(8.8, -1.6, 3, 1.4, 0, 0, Math.PI); g.fill();
+  g.fillStyle = '#ffd166';
+  g.beginPath(); g.ellipse(8, -2, 0.8, 0.5, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(9.6, -1.9, 0.8, 0.5, 0, 0, TAU); g.fill();
+  g.restore();
+}
+
+function drawBodyGilet(g, f, o){
+  var pal = f.pal;
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.3, 3.9, '#2e3442');
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.3, 3.9, '#38404f');
+  bRR(g, -2.2 + o.legB - 3, 0, 6.2, 3.4, 1.5, '#3a2e20');
+  bRR(g,  2.2 + o.legF - 3, 0, 6.2, 3.4, 1.5, '#3a2e20');
+  drawArmS(g, f, o.armB, -1, '#4a5060');
+  // sweat sous LE GILET JAUNE a bandes reflechissantes
+  g.fillStyle = '#4a5060';
+  rrPath(g, -5.4, -24.5, 10.8, 13, 3); g.fill();
+  g.fillStyle = '#ffd23f';
+  rrPath(g, -4.6, -24, 9.2, 11.6, 2.4); g.fill();
+  g.fillStyle = '#4a5060';
+  g.fillRect(-1, -23.4, 2, 10.4);                 // l ouverture du gilet
+  g.fillStyle = '#c9d2e4';
+  g.fillRect(-4.6, -20.4, 9.2, 1.3);              // les bandes
+  g.fillRect(-4.6, -16.2, 9.2, 1.3);
+  // tete : casquette
+  bEll(g, -1.2, 27.2, 2.2, 2.6, pal ? pal.skin : '#d8b598');
+  drawFace(g, 0.7, 26.8, 0.92, { skin: '#d8b598', angry: 0.55 });
+  bEll(g, 0.2, 29.6, 2.7, 1.6, '#8a3030');
+  g.fillStyle = '#8a3030';
+  g.fillRect(1.4, -29.2, 3.4, 1);
+  drawArmS(g, f, o.armF, 1, '#ffd23f');
+  // ARMEMENT : le gilet clignote rouge-jaune
+  if (f.boomT > 0){
+    var fl3 = Math.floor(f.boomT * 12) % 2 === 0;
+    g.fillStyle = fl3 ? 'rgba(255,60,40,0.5)' : 'rgba(255,210,63,0.45)';
+    rrPath(g, -4.6, -24, 9.2, 11.6, 2.4); g.fill();
+  }
+}
+
 function drawBodyPunk(g, f, o){
   var crete = ['#63d68f','#ff5cf0','#ff8a3c'][(f.seed || 0) % 3];
   bLimb(g, -2.2, 13, -2.2 + o.legB, 2.3, 3.8, '#2a2a32');
@@ -6835,6 +6977,8 @@ function drawBody(g, f){
   else if (f.kind==='agitateur') drawBodyCasseur(g, f, o);
   else if (f.kind==='junkie') drawBodyJunkie(g, f, o);
   else if (f.kind==='punk') drawBodyPunk(g, f, o);
+  else if (f.kind==='clochard') drawBodyClochard(g, f, o);
+  else if (f.kind==='gilet') drawBodyGilet(g, f, o);
   else if (f.kind==='chien') drawBodyChien(g, f, o);
   else if (f.kind==='rasta') drawBodyRasta(g, f, o);
   else if (f.kind==='sdf') drawBodySdf(g, f, o);
@@ -6987,7 +7131,20 @@ function drawFighter(g, f){
 }
 
 /* --- objets au sol --- */
+function drawItemPiece(g, sx, sy, t){
+  var sh3 = Math.sin(t * 6) * 0.5 + 0.5;
+  g.fillStyle = '#ffd166';
+  g.beginPath(); g.ellipse(sx, sy - 3, 3, 3, 0, 0, TAU); g.fill();
+  g.strokeStyle = '#b3822e'; g.lineWidth = 0.8;
+  g.beginPath(); g.ellipse(sx, sy - 3, 3, 3, 0, 0, TAU); g.stroke();
+  g.strokeStyle = '#8a5f1e'; g.lineWidth = 0.6;
+  g.beginPath(); g.ellipse(sx, sy - 3, 1.6, 1.6, 0, 0, TAU); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,' + (0.3 + sh3 * 0.4) + ')';
+  g.fillRect(sx - 1.6, sy - 4.6, 1, 1);
+}
+
 function drawItem(g, it){
+  if (it.type === 'piece'){ drawItemPiece(g, it.x - game.camX, GROUND_SY + it.z - it.y, game.time + it.x); drawShadow(g, it.x - game.camX, GROUND_SY + it.z, 2); return; }
   var sx = it.x - game.camX;
   var sy = GROUND_SY + it.z - it.y;
   if (sx<-24 || sx>W+24) return;
@@ -9942,6 +10099,7 @@ window.__crs = {
   ENEMY_TYPES: ENEMY_TYPES,
   wavePool: wavePool,
   ZONES: ZONES,
+  ZONE_POOLS: ZONE_POOLS,
   SFX: SFX,
   UPGRADES_CHAR: UPGRADES_CHAR,
   pickChoices: pickChoices,
