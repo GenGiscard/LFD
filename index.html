@@ -589,7 +589,13 @@ document.addEventListener('keydown', function(e){
       else if (e.key === 'ArrowDown'){ dlg.sel = (dlg.sel + 1) % 3; }
       else if (e.key === 'Enter'){ dlgChoisir(); }
     } else {
-      if (e.key === 'Enter' || e.key === 'Escape'){ ouvrirVille(); }
+      if (e.key === 'Enter' || e.key === 'Escape'){
+        if (dlg.igpn){                            // apres l IGPN : le commissaire attend
+          var diI = Math.min(DIALOGUES.length - 1, Math.max(0, game.zone - 1));
+          game.dlg = { set: DIALOGUES[diI], step: 0, sel: 0 };
+          SFX.pickup();
+        } else { ouvrirVille(); }
+      }
     }
     e.preventDefault(); return;
   }
@@ -1034,6 +1040,28 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     this.momentT = 0;
   }
   if (this.momentT > 0 && dmg > 0) this.momentT = 0;   // frappe : le moment est fini
+  if (this.kind === 'livreur' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
+    this.ripouDonne = true;
+    game.ripou = Math.min(10, (game.ripou || 0) + 2);
+    addFloater(this.x, this.screenY() - 62, 'LA COMMANDE !! [RIPOU +2]', '#ff6b5e', 1.5);
+    addParticles(this.x, this.z, 14, 14, '#c97a2e', 60);      // le repas se repand
+  }
+  if (this.kind === 'badaud' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
+    this.ripouDonne = true;
+    game.ripou = Math.min(10, (game.ripou || 0) + 2);
+    game.vues = (game.vues || 0) + 250000;
+    addFloater(this.x, this.screenY() - 62, 'C EST EN LIGNE ! [RIPOU +2]', '#ff6b5e', 1.6);
+  }
+  if (this.kind === 'retraite' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
+    this.ripouDonne = true;
+    game.ripou = Math.min(10, (game.ripou || 0) + 1);
+    addFloater(this.x, this.screenY() - 62, 'J AI 82 ANS !! [RIPOU +1]', '#ff6b5e', 1.4);
+  }
+  if (this.kind === 'bourgeoise' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
+    this.ripouDonne = true;
+    game.ripou = Math.min(10, (game.ripou || 0) + 3);
+    addFloater(this.x, this.screenY() - 30, 'MAIS... JE VOUS SOUTENAIS ! [RIPOU +3]', '#ff6b5e', 2);
+  }
   if (this.kind === 'medic' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 1);
@@ -1197,7 +1225,7 @@ Fighter.prototype.die = function(dirFrom){
     for (var rd=0; rd<game.fighters.length; rd++){
       var rf = game.fighters[rd];
       if (!rf.isPlayer && !rf.dead && rf !== this && rf.state !== 'cuffed' &&
-          rf.state !== 'flee' && rf.kind !== 'journaliste' && rf.kind !== 'clochard' && rf.kind !== 'pacifiste' && rf.kind !== 'medic') resteD++;
+          rf.state !== 'flee' && !AMBIANTS[rf.kind]) resteD++;
     }
     if (resteD === 0){
       game.slowmoT = this.finalBoss ? 1.1 : 0.55;
@@ -1313,6 +1341,18 @@ var ENEMY_TYPES = {
                 slogans:['J ETAIS LA AVANT TOI.','C EST MA RUE.','UNE PIECE, CHEF ?'] },
   gilet:      { name:'Gilet jaune', hp:35, spd:48, pal:null, atk:['epunch'], gilet:true,
                 slogans:['ON EST LA ! ON EST LA !','ROND-POINT A VIE.','MACRON, ENTENDS-TU ?'] },
+  livreur:    { name:'Livreur en scooter', hp:30, spd:132, pal:null, atk:[], livreur:true,
+                slogans:['PARDON, JE BOSSE.','C EST POUR UNE COMMANDE.',
+                         'VOUS ETES SUR MON CHEMIN !','3,80 EUROS LA COURSE...','5 ETOILES, HEIN.'] },
+  badaud:     { name:'Badaud au telephone', hp:25, spd:34, pal:null, atk:[], badaud:true,
+                slogans:['C EST POUR TWITTER.','SOURIEZ !','JE FILME TOUT, HEIN.',
+                         'CA VA FAIRE UN MILLION DE VUES.','RESTEZ COMME CA !'] },
+  retraite:   { name:'Retraite raleur', hp:45, spd:26, pal:null, atk:['slap'], retraite:true,
+                slogans:['DE MON TEMPS !','TOUS DES FEIGNANTS !','Y A PLUS DE SAISONS !',
+                         'ET MA RETRAITE ?!','VOUS FAITES DU BRUIT !','J AI FAIT LA GUERRE, MOI !'] },
+  bourgeoise: { name:'Bourgeoise au balcon', hp:30, spd:0, pal:null, atk:[], bourgeoise:true, flying:true,
+                slogans:['BRAVO LES FORCES DE L ORDRE !','TAPEZ PLUS FORT !',
+                         'ILS ONT SALI MA RUE !','J AI APPELE LE COMMISSAIRE !','MERCI MESSIEURS !'] },
   medic:      { name:'Street medic', hp:40, spd:70, pal:null, atk:[], medic:true,
                 slogans:['MEDIC ! MEDIC !','JE SUIS SECOURISTE, PAS MANIFESTANT !',
                          'SERUM PHY, LES YEUX EN L AIR !','J AI RIEN FAIT, MOI !',
@@ -1351,6 +1391,8 @@ var ENEMY_TYPES = {
                 slogans:['VOUS REPRENDREZ BIEN UNE MERGUEZ ?','PERSONNE NE TOUCHE A MON STAND !'] }
 };
 
+var AMBIANTS = { journaliste:1, clochard:1, pacifiste:1, medic:1,
+                 livreur:1, badaud:1, retraite:1, bourgeoise:1 };   // des passants, pas des emeutiers
 var MANIF_BASE = { casseur:1, etudiant:1, antifa:1, anarchiste:1, ecolo:1, artiste:1,
                    ouvrier:1, tambour:1, costaud:1, leader:1, punk:1, junkie:1, danseuse:1 };
 var INSULTES = [
@@ -1940,6 +1982,7 @@ Fighter.prototype.update = function(dt){
           game.honneur = Math.min(10, (game.honneur || 0) + 1);
           var ppts8 = Math.round((60 + game.wave*6) * (game.lois.ruissellement ? 1.25 : 1));
           game.score += ppts8;
+          game.evacues = (game.evacues||0) + 1;
           addFloater(ct.x, ct.screenY()-52, 'EVACUE EN DOUCEUR +' + ppts8, '#7ce38b', 1.3);
           game.particles.push({ star:true, x:ct.x, z:ct.z, y:10, t:0.2, r:7, col:'#7ce38b' });
           SFX.pickup();
@@ -1967,6 +2010,7 @@ Fighter.prototype.update = function(dt){
         }
         var cpts = Math.round((120 + game.wave*12) * (1 + Math.min(2, game.combo*0.05)) * (game.lois.ruissellement ? 1.25 : 1));
         game.score += cpts; game.kills = (game.kills||0) + 1;
+        game.cuffs = (game.cuffs||0) + 1;
         game.combo++; game.comboT = game.comboWin || 1.6;
         if (game.combo > game.bestCombo) game.bestCombo = game.combo;
         addFloater(ct.x, ct.screenY()-52, 'INTERPELLE ! +' + cpts, '#7ec8ff');
@@ -2542,6 +2586,7 @@ Fighter.prototype.pickUp = function(it){
   game.particles.push({ star:true, x:it.x, z:it.z, y:10, t:0.14, r:4.5, col:'#ffd166' });
   if (it.type==='piece'){
     game.score += 25;
+    game.pieces = (game.pieces||0) + 1;
     addFloater(this.x, this.screenY()-48, '+25', '#ffd166');
     beep(1560, 0.06, 'square', 0.05); beep(2080, 0.09, 'square', 0.05, 0, 0.06);
     it.remove = true; return;
@@ -2622,6 +2667,87 @@ Fighter.prototype.aiControl = function(dt, slow){
   if (this.kind === 'pacifiste'){
     this.setState('idle');
     return;                                     // assis en tailleur. il chante. il ne bougera pas.
+  }
+  if (this.kind === 'livreur'){
+    this.x += this.dir * this.speed * dt;            // il traverse. l emeute ne le concerne pas.
+    this.setState('walk');
+    if (this.x < 6 || this.x > MAP_W - 6){ this.dead = true; this.remove = true; }
+    return;
+  }
+  if (this.kind === 'badaud'){
+    var bdx8 = p.x - this.x, bdz8 = p.z - this.z;
+    this.dir = bdx8 >= 0 ? 1 : -1;
+    if (Math.abs(bdx8) > 46 || Math.abs(bdz8) > 12){
+      this.x += this.dir * this.speed * dt;
+      if (Math.abs(bdz8) > 3) this.z = clamp(this.z + (bdz8 > 0 ? 1 : -1) * this.speed * 0.7 * dt, Z_MIN, Z_MAX);
+      this.setState('walk');
+      this.filme = false;
+    } else {
+      this.vx = 0; this.filme = true;
+      if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
+      this.filmT = (this.filmT === undefined ? 3.5 : this.filmT - dt);
+      if (this.filmT <= 0){
+        this.filmT = 4.5;
+        var vu8 = irnd(120, 9400);
+        game.vues = (game.vues || 0) + vu8;
+        addFloater(this.x, this.screenY() - 54, '+' + vu8 + ' VUES', '#7ec8ff', 1.3);
+      }
+    }
+    return;                                          // il ne frappe pas : il documente.
+  }
+  if (this.kind === 'bourgeoise'){
+    this.y = 42; this.vy = 0; this.vx = 0;           // elle est a son balcon, elle y reste
+    if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
+    this.appT = (this.appT === undefined ? 1.2 : this.appT - dt);
+    if (this.appT <= 0){
+      this.appT = 2.2;
+      var pls8b = [game.player, game.player2];
+      for (var pb8 = 0; pb8 < 2; pb8++){
+        var pj8 = pls8b[pb8];
+        if (!pj8 || pj8.dead || Math.abs(pj8.x - this.x) > 74) continue;
+        pj8.hp = Math.min(pj8.hpMax, pj8.hp + 2);
+        game.applaudis = (game.applaudis || 0) + 1;
+        this.claque = 1.4;
+        if (Math.random() < 0.45){
+          addFloater(this.x, this.screenY() - 26, (ENEMY_TYPES.bourgeoise.slogans)[irnd(0, 4)], '#e8a0d0', 1.6);
+        }
+        addParticles(pj8.x, pj8.z, 4, 18, '#e8a0d0', 30);
+      }
+    }
+    if (this.claque > 0) this.claque -= dt;
+    return;
+  }
+  if (this.kind === 'retraite'){
+    // il tape sur TOUT LE MONDE : le CRS, les manifestants, les idees
+    if (this.atkCd > 0) this.atkCd -= dt;
+    var cib8 = null, cd8 = 1e9;
+    for (var rq8 = 0; rq8 < game.fighters.length; rq8++){
+      var rf8 = game.fighters[rq8];
+      if (rf8 === this || rf8.dead || rf8.flying) continue;
+      if (rf8.kind === 'retraite' || rf8.kind === 'clochard' || rf8.kind === 'livreur') continue;
+      if (rf8.state === 'cuffed' || rf8.state === 'flee') continue;
+      var rd8 = Math.abs(rf8.x - this.x) + Math.abs(rf8.z - this.z) * 1.4;
+      if (rd8 < cd8 && rd8 < 200){ cd8 = rd8; cib8 = rf8; }
+    }
+    if (!cib8){ if (this.state === 'idle' || this.state === 'walk') this.setState('idle'); return; }
+    var rdx8 = cib8.x - this.x, rdz8 = cib8.z - this.z;
+    this.dir = rdx8 >= 0 ? 1 : -1;
+    if (this.state !== 'idle' && this.state !== 'walk') return;
+    if (Math.abs(rdx8) < 13 && Math.abs(rdz8) < 9){
+      if (!(this.atkCd > 0)){
+        this.atkCd = 1.5;
+        this.startAttack('slap');
+        if (!cib8.isPlayer){                          // les manifestants aussi y ont droit
+          cib8.hurt(5, 55, cib8.x >= this.x ? 1 : -1, false, 'enemy');
+          addFloater(cib8.x, cib8.screenY() - 46, 'AIE !', '#ffb0a0', 1.1);
+        }
+      }
+      return;
+    }
+    this.x += this.dir * this.speed * dt;
+    if (Math.abs(rdz8) > 2) this.z = clamp(this.z + (rdz8 > 0 ? 1 : -1) * this.speed * 0.6 * dt, Z_MIN, Z_MAX);
+    this.setState('walk');
+    return;
   }
   if (this.kind === 'medic'){
     if (this.soinT > 0){                        // il est en train de soigner : rien ne le distrait
@@ -3876,6 +4002,24 @@ function startWave(n){
     var jp = spawnEnemy('journaliste');
     jp.pressT = 12;
   }
+  if (Math.random() < 0.4){                                     // le livreur traverse, imperturbable
+    var lv8 = spawnEnemy('livreur');
+    var cote8 = Math.random() < 0.5;
+    lv8.x = cote8 ? 10 : MAP_W - 10;
+    lv8.dir = cote8 ? 1 : -1;
+    lv8.z = clamp(rnd(Z_MIN + 4, Z_MAX - 4), Z_MIN, Z_MAX);
+  }
+  if (game.zone >= 1 && Math.random() < 0.4 && !game.fighters.some(function(bf){ return bf.kind === 'badaud' && !bf.dead; })){
+    var bd8 = spawnEnemy('badaud');
+  }
+  if (Math.random() < 0.3 && !game.fighters.some(function(rf9){ return rf9.kind === 'retraite' && !rf9.dead; })){
+    var rt8 = spawnEnemy('retraite');
+  }
+  if (game.zone <= 2 && Math.random() < 0.4 && !game.fighters.some(function(qf){ return qf.kind === 'bourgeoise' && !qf.dead; })){
+    var bg8 = spawnEnemy('bourgeoise');
+    bg8.x = clamp(rnd(game.camX + 60, game.camX + W - 60), 60, MAP_W - 60);
+    bg8.z = Z_MIN + 2; bg8.y = 42; bg8.dir = -1;
+  }
   if (game.zone >= 1 && Math.random() < 0.45 && !game.fighters.some(function(mf){ return mf.kind === 'medic' && !mf.dead; })){
     var md8 = spawnEnemy('medic');
     md8.x = clamp(game.camX + W + 30, 40, MAP_W - 30);
@@ -4076,6 +4220,9 @@ function resetGame(){
   game.shop = {}; game.shopSel = 0; game.shopRefusT = 0;
   game.lois = {}; game.voteDispo = false; game.panier = [];
   game.agCd = rnd(12, 20);
+  game.vues = 0; game.applaudis = 0;
+  game.cuffs = 0; game.evacues = 0; game.agTotal = 0; game.chantsTotal = 0; game.pieces = 0;
+  game.igpnFaite = false;
   game.slowmoT = 0;
   game.barriers = []; game.graffitis = [];
   var cdef = CHARS[game.selChar] || CHARS[0];
@@ -4233,6 +4380,18 @@ var DIALOGUES = [
       { t: 'On envoie le stagiaire en eclaireur.', r: 1, rep: 'Encore lui. Il commence a comprendre pourquoi le poste etait vacant.' }
     ] }
 ];
+var IGPN_SET = {
+  igpn: true,
+  intro: 'IGPN, bonjour. Onze signalements, quatre videos virales, un clochard detrousse. Asseyez-vous. Vous dites quoi ?',
+  choix: [
+    { t: 'Je n ai rien vu. Il pleuvait des paves.', hm: 1,
+      rep: 'Classique. Classe sans suite, comme les 847 dossiers precedents. Vous pouvez disposer.' },
+    { t: 'J assume tout. C etait moi.', rm: 2, h: 2,
+      rep: 'De la franchise ? Ici ? ...Le dossier se perd deja dans un carton. Mais je m en souviendrai.' },
+    { t: 'C etait le collegue. Matricule 47.', rm: 3, hm: 2, pts: 300,
+      rep: 'Delation enregistree. Prime de cooperation versee. Le 47 sera surpris : il est a la retraite.' }
+  ]
+};
 var LOIS = [
   { id:'tolerance',  nom:'LOI \u00AB TOLERANCE ZERO \u00BB',
     txt:'Vos frappes +25%. Votee a main levee, personne n a lu l article 2.' },
@@ -4337,13 +4496,21 @@ function openCommissariat(nextWave){
   game.villeWave = nextWave;
   game.voteDispo = true;   // la session parlementaire s ouvre a chaque etape
   var di = Math.min(DIALOGUES.length - 1, Math.max(0, game.zone - 1));
-  game.dlg = { set: DIALOGUES[di], step: 0, sel: 0 };
+  if ((game.ripou || 0) >= 6 && !game.igpnFaite){
+    game.igpnFaite = true;                       // une convocation par carriere
+    game.dlg = { set: IGPN_SET, step: 0, sel: 0, igpn: true };
+  } else {
+    game.dlg = { set: DIALOGUES[di], step: 0, sel: 0 };
+  }
   game.state = 'commissariat';
 }
 function dlgChoisir(){
   var c = game.dlg.set.choix[game.dlg.sel];
   if (c.r){ game.ripou = Math.min(10, (game.ripou || 0) + c.r); }
   if (c.h){ game.honneur = Math.min(10, (game.honneur || 0) + c.h); }
+  if (c.rm){ game.ripou = Math.max(0, (game.ripou || 0) - c.rm); }
+  if (c.hm){ game.honneur = Math.max(0, (game.honneur || 0) - c.hm); }
+  if (c.pts){ game.score += c.pts; }
   game.dlg.step = 1;
   SFX.pickup();
 }
@@ -5129,6 +5296,7 @@ function update(dt){
               gf9.vx = 0;
               gf9.dir = af9.x >= gf9.x ? 1 : -1;  // tous tournes vers l orateur
             }
+            game.agTotal = (game.agTotal||0) + 1;
             addFloater(af9.x, af9.screenY() - 62, 'AG SPONTANEE !', '#ffd166', 1.9);
             beep(523, 0.09, 'triangle', 0.05);
             beep(659, 0.14, 'triangle', 0.05, 0, 0.1);
@@ -5141,6 +5309,7 @@ function update(dt){
               cf9b.chanteT = 4.5;
               addParticles(cf9b.x, cf9b.z, 12, 8, '#ff8a5c', 50);
             }
+            game.chantsTotal = (game.chantsTotal||0) + 1;
             addFloater(af9.x, af9.screenY() - 62, chant9, '#ff8a5c', 2.2);
             beep(196, 0.1, 'square', 0.05);
             beep(262, 0.1, 'square', 0.05, 0, 0.12);
@@ -5224,7 +5393,7 @@ function update(dt){
     }
   } else {
     var alive = 0;
-    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed' && game.fighters[i].state !== 'flee' && game.fighters[i].kind !== 'journaliste' && game.fighters[i].kind !== 'clochard' && game.fighters[i].kind !== 'pacifiste' && game.fighters[i].kind !== 'medic') alive++;
+    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed' && game.fighters[i].state !== 'flee' && !AMBIANTS[game.fighters[i].kind]) alive++;
     if (alive===0 && game.waveBannerT<=0 && !game.goMode && game.fadeT<=0 && !(game.victoryT>0) && game.state==='play') openLevelup(game.wave+1);
   }
 
@@ -5458,6 +5627,27 @@ function bLimb(g, x1, y1, x2, y2, w, col){
   }
 }
 
+function avisAdmin(){
+  var r = game.ripou || 0, h = game.honneur || 0;
+  if (r >= 7 && h >= 7) return 'DOSSIER INCLASSABLE. DETRUIT PAR PRECAUTION.';
+  if (r >= 7) return 'MUTATION DISCIPLINAIRE A L ETUDE.';
+  if (h >= 7) return 'FELICITATIONS DU MINISTRE (PAR SMS).';
+  if (r >= 4) return 'RAPPEL A L ORDRE. LE RAPPORT S EST EGARE.';
+  if (h >= 4) return 'ENCOURAGEMENTS. SANS PRIME, EVIDEMMENT.';
+  return 'RAS. PERSONNE N A LU CE RAPPORT.';
+}
+function drawRapport(g, y0){
+  g.textAlign = 'center';
+  g.fillStyle = '#8b96ad'; g.font = 'bold 7px monospace';
+  g.fillText('\u2014 RAPPORT DE MISSION \u2014', W/2, y0);
+  g.fillStyle = '#c9d2e2'; g.font = '7px monospace';
+  g.fillText((game.cuffs||0) + ' INTERPELLATIONS \u00B7 ' + (game.evacues||0) + ' PACIFISTES EVACUES \u00B7 ' +
+    (game.pieces||0) + ' PIECES DE CLOCHARD', W/2, y0 + 11);
+  g.fillText((game.agTotal||0) + ' AG SUBIES \u00B7 ' + (game.chantsTotal||0) + ' CHANTS ENCAISSES \u00B7 ' +
+    (game.vues||0) + ' VUES EN LIGNE \u00B7 ' + (game.applaudis||0) + ' BRAVOS BOURGEOIS', W/2, y0 + 21);
+  g.fillStyle = '#ffd166'; g.font = 'bold 7px monospace';
+  g.fillText('AVIS DE L ADMINISTRATION : ' + avisAdmin(), W/2, y0 + 33);
+}
 function drawShadow(g, sx, sy, w){
   var gr = g.createRadialGradient(sx, sy+1, 1, sx, sy+1, w*1.7);
   gr.addColorStop(0, 'rgba(0,0,12,0.40)');
@@ -6152,6 +6342,140 @@ function drawBodyCasseur(g, f, o){
 }
 
 /* --- etudiant revolte : bonnet rouge, veste verte --- */
+function drawBodyLivreur(g, f, o){
+  var peau = '#c9a582';
+  // le scooter
+  g.fillStyle = '#22262e';
+  g.beginPath(); g.arc(-5.4, -3.4, 3.4, 0, TAU); g.fill();
+  g.beginPath(); g.arc(6, -3.4, 3.4, 0, TAU); g.fill();
+  g.fillStyle = '#6a7080';
+  g.beginPath(); g.arc(-5.4, -3.4, 1.3, 0, TAU); g.fill();
+  g.beginPath(); g.arc(6, -3.4, 1.3, 0, TAU); g.fill();
+  g.fillStyle = '#c0392b';
+  rrPath(g, -6.4, -9.4, 12.4, 5, 2); g.fill();
+  g.fillStyle = '#8f2b21';
+  rrPath(g, 3.4, -13.4, 3.4, 5, 1.2); g.fill();       // le guidon
+  g.strokeStyle = '#c9d2e4'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(4.4, -13.6); g.lineTo(8, -14.4); g.stroke();
+  // le livreur, penche sur sa machine
+  bLimb(g, -1.4, 9.4, 2.6, 2.2, 3.4, '#2b3140');
+  g.fillStyle = '#2f3644';
+  rrPath(g, -3.4, -23, 7.6, 12, 2.6); g.fill();
+  g.strokeStyle = peau; g.lineWidth = 1.8; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(1.4, -21.4); g.quadraticCurveTo(4.4, -18.4, 5.4, -14.6); g.stroke();
+  // LE SAC ISOTHERME, enorme, carre, fluo
+  g.fillStyle = '#1ec8a0';
+  rrPath(g, -9.4, -26.4, 8.4, 9.4, 1.4); g.fill();
+  g.strokeStyle = '#0f8f72'; g.lineWidth = 0.7;
+  g.strokeRect(-8.4, -25.4, 6.4, 7.4);
+  g.fillStyle = '#0f8f72';
+  g.fillRect(-6.6, -23.4, 2.8, 0.9);
+  // casque integral
+  bEll(g, -0.4, 25.4, 2.6, 2.8, '#f2ece0');
+  g.fillStyle = '#2b3140';
+  g.beginPath(); g.ellipse(1, -25.2, 1.8, 1.4, -0.3, 0, TAU); g.fill();   // la visiere
+  g.fillStyle = peau;
+  g.fillRect(0.4, -23.2, 1.4, 1.2);
+}
+
+function drawBodyBadaud(g, f, o){
+  var peau = '#d8b598';
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.3, 3.8, '#3a4252');
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.3, 3.8, '#454f63');
+  bRR(g, -2.2 + o.legB - 3, 0, 6, 3.2, 1.4, '#dfe3e8');
+  bRR(g,  2.2 + o.legF - 3, 0, 6, 3.2, 1.4, '#dfe3e8');
+  drawArmS(g, f, o.armB, -1, '#5a8fd0');
+  g.fillStyle = '#5a8fd0';
+  rrPath(g, -4.8, -24.4, 9.6, 12.6, 2.6); g.fill();
+  bEll(g, -1.2, 27.2, 2.2, 2.6, peau);
+  drawFace(g, 0.7, 26.8, 0.92, { skin: peau, angry: 0 });
+  g.fillStyle = '#3a3128';
+  g.beginPath(); g.ellipse(-0.4, -29.6, 2.8, 1.7, 0, Math.PI, 0); g.fill();
+  // LE TELEPHONE, tenu bien a la VERTICALE, a bout de bras
+  g.strokeStyle = peau; g.lineWidth = 1.8; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(3, -22.4); g.quadraticCurveTo(6.4, -24.4, 6.8, -27.4); g.stroke();
+  g.fillStyle = '#14161c';
+  rrPath(g, 5.8, -31.4, 2.6, 4.6, 0.5); g.fill();
+  g.fillStyle = f.filme ? '#8fd3f4' : '#3a4252';
+  g.fillRect(6.1, -30.9, 2, 3.6);
+  if (f.filme){
+    g.fillStyle = '#ff4a4a';                          // la pastille rouge : ca tourne
+    g.beginPath(); g.arc(7.1, -32.2, 0.6, 0, TAU); g.fill();
+  }
+  drawArmS(g, f, o.armF, 1, '#5a8fd0');
+}
+
+function drawBodyRetraite(g, f, o){
+  var peau = '#d8bfa4';
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.4, 3.8, '#5a5344');
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.4, 3.8, '#6a6250');
+  bRR(g, -2.2 + o.legB - 3, 0, 6, 3.2, 1.2, '#3a2e20');
+  bRR(g,  2.2 + o.legF - 3, 0, 6, 3.2, 1.2, '#3a2e20');
+  drawArmS(g, f, o.armB, -1, '#7a5f47');
+  // gilet de laine, dos vout\u00e9
+  g.fillStyle = '#7a5f47';
+  g.beginPath();
+  g.moveTo(-4.8, -11.4);
+  g.quadraticCurveTo(-6, -22.4, -0.6, -24.4);
+  g.lineTo(3.8, -22.6);
+  g.quadraticCurveTo(4.2, -15.4, 4.6, -11.4);
+  g.closePath(); g.fill();
+  g.fillStyle = '#5f4a37';
+  g.fillRect(-1, -24, 1.4, 12.4);
+  // LA CANNE, brandie
+  g.strokeStyle = '#4a3728'; g.lineWidth = 1.2; g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(3.4, -20.4);
+  g.lineTo(7.4, -26.4 + (f.state === 'attack' ? -3 : 0));
+  g.stroke();
+  g.beginPath(); g.arc(7.9, -27.4 + (f.state === 'attack' ? -3 : 0), 1.1, Math.PI, TAU); g.stroke();
+  // tete : cheveux blancs, casquette plate
+  bEll(g, -1.2, 26.6, 2.2, 2.5, peau);
+  drawFace(g, 0.7, 26.2, 0.9, { skin: peau, angry: 0.85 });
+  g.fillStyle = '#e8e4dc';
+  g.beginPath(); g.ellipse(-0.6, -28.4, 2.7, 1.5, 0, Math.PI, 0); g.fill();
+  g.fillStyle = '#5a5344';
+  g.beginPath(); g.ellipse(-0.2, -29.2, 3, 1.5, 0, Math.PI, 0); g.fill();
+  g.fillRect(1.8, -29.4, 3.4, 1);                     // la visiere de la casquette plate
+  drawArmS(g, f, o.armF, 1, '#7a5f47');
+}
+
+function drawBodyBourgeoise(g, f, o){
+  var peau = '#f0d5b8';
+  var cl8 = f.claque > 0 ? Math.abs(Math.sin(f.animT * 16)) : 0;
+  // LE BALCON : garde-corps en fer forge, sous elle
+  g.fillStyle = '#3a3f52';
+  g.fillRect(-11, -6.4, 22, 1.6);
+  g.strokeStyle = '#4a5068'; g.lineWidth = 0.9;
+  for (var bq8 = 0; bq8 < 7; bq8++){
+    g.beginPath(); g.moveTo(-9 + bq8 * 3, -6); g.lineTo(-9 + bq8 * 3, 1.6); g.stroke();
+  }
+  g.fillStyle = '#2f3444';
+  g.fillRect(-11, 1.2, 22, 1.6);
+  g.fillStyle = '#5a3a3a';                            // le geranium reglementaire
+  g.beginPath(); g.arc(-8.4, -8, 1.8, 0, TAU); g.fill();
+  g.fillStyle = '#c0392b';
+  g.beginPath(); g.arc(-8.8, -9.4, 0.8, 0, TAU); g.fill();
+  g.beginPath(); g.arc(-7.6, -9.2, 0.7, 0, TAU); g.fill();
+  // le buste (le reste est derriere la rambarde)
+  g.fillStyle = '#c9a0d0';
+  rrPath(g, -4, -21.4, 8, 15.4, 2.6); g.fill();
+  g.fillStyle = '#f2ece0';
+  g.fillRect(-2.4, -21, 4.8, 2.2);                    // le col
+  g.strokeStyle = '#f4efe4'; g.lineWidth = 0.6;       // le collier de perles
+  g.beginPath(); g.arc(0, -19.6, 2.2, 0.2, Math.PI - 0.2); g.stroke();
+  // LES MAINS QUI APPLAUDISSENT
+  g.fillStyle = peau;
+  g.beginPath(); g.ellipse(-2 - cl8 * 1.4, -14.4, 1.5, 1.8, 0, 0, TAU); g.fill();
+  g.beginPath(); g.ellipse(2 + cl8 * 1.4, -14.4, 1.5, 1.8, 0, 0, TAU); g.fill();
+  // tete + chignon
+  bEll(g, -0.6, 24.4, 2.2, 2.5, peau);
+  drawFace(g, 0.9, 24, 0.9, { skin: peau, angry: 0 });
+  g.fillStyle = '#c9a24a';
+  g.beginPath(); g.ellipse(-0.4, -26.4, 2.8, 1.8, 0, Math.PI, 0); g.fill();
+  g.beginPath(); g.arc(-2.4, -27.4, 1.7, 0, TAU); g.fill();
+}
+
 function drawBodyMedic(g, f, o){
   var tenue = '#dfe3e8', sombre = '#2f3540', peau = '#e0bd9a';
   var soigne8 = f.soinT > 0;
@@ -7592,6 +7916,10 @@ function drawBody(g, f){
   else if (f.kind==='clochard') drawBodyClochard(g, f, o);
   else if (f.kind==='pacifiste') drawBodyPacifiste(g, f, o);
   else if (f.kind==='medic') drawBodyMedic(g, f, o);
+  else if (f.kind==='livreur') drawBodyLivreur(g, f, o);
+  else if (f.kind==='badaud') drawBodyBadaud(g, f, o);
+  else if (f.kind==='retraite') drawBodyRetraite(g, f, o);
+  else if (f.kind==='bourgeoise') drawBodyBourgeoise(g, f, o);
   else if (f.kind==='gilet') drawBodyGilet(g, f, o);
   else if (f.kind==='chien') drawBodyChien(g, f, o);
   else if (f.kind==='rasta') drawBodyRasta(g, f, o);
@@ -10041,7 +10369,7 @@ function draw(){
     rrPath(g, 24, 126, W - 48, 128, 6); g.stroke();
     g.textAlign = 'left';
     g.fillStyle = '#ffd166'; g.font = 'bold 8px monospace';
-    g.fillText('LE COMMISSAIRE', 36, 142);
+    g.fillText(game.dlg && game.dlg.igpn ? 'L INSPECTRICE \u00B7 IGPN' : 'LE COMMISSAIRE', 36, 142);
     var dlgD = game.dlg;
     g.fillStyle = '#dfe6f2'; g.font = '7px monospace';
     var texte8 = dlgD.step === 0 ? dlgD.set.intro : dlgD.set.choix[dlgD.sel].rep;
@@ -10390,6 +10718,7 @@ function draw(){
     g.fillText(vk, W/2 - 108, 104.5);
     g.fillStyle='#dfe6f2'; g.font='8px monospace';
     g.fillText('SCORE ' + game.score + '  \u00B7  ' + (game.kills||0) + ' NEUTRALISATIONS  \u00B7  COMBO x' + game.bestCombo, W/2 + 12, 102);
+    drawRapport(g, 126);
     g.fillStyle = Math.floor(game.time*2)%2===0 ? '#ffd166' : '#8b7333';
     g.font='8px monospace';
     g.fillText('ENTREE POUR REJOUER' + (game.scoreSaved ? '  \u00B7  SCORE ENVOYE \u2713' : '  \u00B7  S : INSCRIRE MON SCORE'), W/2, 258);
@@ -10423,6 +10752,7 @@ function draw(){
     g.fillText('SCORE ' + game.score + '  \u00B7  MANCHE ' + game.wave, W/2, 128);
     g.fillStyle='#93a1ba'; g.font='8px monospace';
     g.fillText((game.kills||0) + ' NEUTRALISATIONS  \u00B7  MEILLEUR COMBO x' + game.bestCombo, W/2, 141);
+    drawRapport(g, 162);
     g.fillStyle = Math.floor(game.time*2)%2===0 ? '#ffd166' : '#8b7333';
     g.font='9px monospace';
     g.fillText('ENTREE POUR REJOUER', W/2, 162);
@@ -10780,12 +11110,16 @@ window.__crs = {
   SCISSIONS: SCISSIONS,
   CLOPES: CLOPES,
   CHANTS: CHANTS,
+  AMBIANTS: AMBIANTS,
   PLEURS: PLEURS,
   PANIQUES: PANIQUES,
   SHOP_MARCHAND: SHOP_MARCHAND,
   SHOP_ACADEMIE: SHOP_ACADEMIE,
   shopAcheter: shopAcheter,
   DIALOGUES: DIALOGUES,
+  IGPN_SET: IGPN_SET,
+  dlgChoisir: dlgChoisir,
+  avisAdmin: avisAdmin,
   updatePowers: updatePowers,
   stingerCuff: stingerCuff,
   MET_RIFFS: MET_RIFFS,
