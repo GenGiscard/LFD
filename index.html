@@ -1302,6 +1302,10 @@ var ENEMY_TYPES = {
                 slogans:['J ETAIS LA AVANT TOI.','C EST MA RUE.','UNE PIECE, CHEF ?'] },
   gilet:      { name:'Gilet jaune', hp:35, spd:48, pal:null, atk:['epunch'], gilet:true,
                 slogans:['ON EST LA ! ON EST LA !','ROND-POINT A VIE.','MACRON, ENTENDS-TU ?'] },
+  danseuse:   { name:'Danseuse en transe', hp:45, spd:62, pal:null, atk:[], danseuse:true,
+                slogans:['LE CORPS EST POLITIQUE !','TA MATRAQUE NE DANSE PAS !',
+                         'CECI EST UNE PERFORMANCE !','REJOINS LA RONDE, CHEF !',
+                         'ON DANSE, ON NE CASSE PAS !'] },
   rasta:      { name:'Rasta', hp:70, spd:34, pal:null, atk:['epunch'], rasta:true,
                 slogans:['PAIX, FRERE. ENFIN, PAS POUR TOI.','JAH VOIT TOUT, CAPITAINE.','DOUCEMENT LE MATIN.'] },
   sdf:        { name:'SDF au caddie', hp:85, spd:30, pal:null, atk:['caddie'], sdf:true,
@@ -1330,7 +1334,7 @@ var ENEMY_TYPES = {
 };
 
 var MANIF_BASE = { casseur:1, etudiant:1, antifa:1, anarchiste:1, ecolo:1, artiste:1,
-                   ouvrier:1, tambour:1, costaud:1, leader:1, punk:1, junkie:1 };
+                   ouvrier:1, tambour:1, costaud:1, leader:1, punk:1, junkie:1, danseuse:1 };
 var INSULTES = [
   'JE PAIE TON SALAIRE !', 'MILICE DU CAPITAL !', 'VENDU !', 'REND L ARGENT !',
   'TU SERS LE SYSTEME !', 'ON LACHE RIEN !', 'HONTE A TOI !', 'MA GRAND-MERE COURT PLUS VITE !'
@@ -1345,11 +1349,11 @@ var PANIQUES = [
 ];
 var ZONE_POOLS = [
   ['casseur','casseur','antifa','anarchiste','etudiant'],            // RUE COMMERCANTE
-  ['tambour','casseur','casseur','sdf','etudiant'],                  // LA PLACE
+  ['tambour','casseur','casseur','sdf','danseuse','etudiant'],       // LA PLACE
   ['artiste','costaud','leader','etudiant','etudiant'],              // PARVIS DE L ASSEMBLEE
   ['theoricien','etudiant','etudiant','etudiant'],                   // LE CAMPUS OCCUPE
   ['doyen','ouvrier','ouvrier','gilet','etudiant'],                  // LA RAFFINERIE
-  ['rasta','punk','junkie','junkie','etudiant']                      // LA RAVE SAUVAGE
+  ['rasta','punk','junkie','junkie','danseuse','etudiant']           // LA RAVE SAUVAGE
 ];
 function wavePool(n){
   return (ZONE_POOLS[game.zone] || ZONE_POOLS[0]).slice();
@@ -1468,6 +1472,32 @@ Fighter.prototype.update = function(dt){
   if (this.ondeHitT > 0) this.ondeHitT -= dt;
   if (this.woufHitT > 0) this.woufHitT -= dt;
   if (this.pwrHitT > 0) this.pwrHitT -= dt;
+  if (!this.isPlayer && this.kind === 'danseuse'){
+    var peutDanser7 = !this.dead && this.state !== 'cuffed' && this.state !== 'down' &&
+                      this.state !== 'fall' && this.state !== 'getup' && this.state !== 'flee' &&
+                      !(this.momentT > 0);
+    var cible7 = null;
+    if (peutDanser7){
+      for (var dz7 = 0; dz7 < game.fighters.length; dz7++){
+        var dj7 = game.fighters[dz7];
+        if (!dj7.isPlayer || dj7.dead) continue;
+        if (Math.abs(dj7.x - this.x) < 28 && Math.abs(dj7.z - this.z) < 13){ cible7 = dj7; break; }
+      }
+    }
+    this.danse = !!cible7;
+    if (cible7){
+      this.danseTick = (this.danseTick || 0) - dt;
+      if (this.danseTick <= 0){
+        this.danseTick = 0.5;
+        cible7.mp = Math.max(0, cible7.mp - 7);          // le souffle s en va
+        if (Math.random() < 0.35) addFloater(cible7.x, cible7.screenY() - 46, 'TU DANSES ?', '#ff8ad8');
+      }
+      if (Math.random() < 0.14){
+        game.particles.push({ x:this.x + rnd(-9, 9), z:this.z, y:rnd(10, 30),
+          vx:rnd(-4, 4), vy:16, vz:0, t:0.6, col:['#ff5cf0','#ff8ad8','#c9a2ff'][irnd(0, 2)] });
+      }
+    }
+  }
   if (!this.isPlayer && this.kind === 'rasta' && !this.dead &&
       this.state !== 'cuffed' && this.state !== 'down' && this.state !== 'fall' && this.state !== 'flee'){
     this.paixTick = (this.paixTick || 0) - dt;
@@ -2628,6 +2658,22 @@ Fighter.prototype.aiControl = function(dt, slow){
         }
       }
     }
+  }
+  if (this.kind === 'danseuse'){
+    var wdx7 = p.x - this.x, wdz7 = p.z - this.z;
+    this.dir = wdx7 >= 0 ? 1 : -1;
+    if (this.state === 'idle' || this.state === 'walk'){
+      if (this.danse){
+        this.vx = 0;
+        this.setState('idle');                          // elle est arrivee : la transe commence
+        this.animT += dt * 1.2;                         // et elle ondule
+      } else {
+        this.x += this.dir * this.speed * dt;
+        if (Math.abs(wdz7) > 2) this.z = clamp(this.z + (wdz7 > 0 ? 1 : -1) * this.speed * 0.65 * dt, Z_MIN, Z_MAX);
+        this.setState('walk');
+      }
+    }
+    return;                                             // elle ne frappe jamais. jamais.
   }
   this.aiT -= dt;
   this.aiModeT -= dt;
@@ -5902,6 +5948,60 @@ function drawBodyGilet(g, f, o){
   }
 }
 
+function drawBodyDanseuse(g, f, o){
+  var mech = ['#ff5cf0','#4ad6ff','#a6ff3c'][(f.seed || 0) % 3];
+  var peau = '#f0d5b8';
+  var sw7 = f.danse ? Math.sin(f.animT * 7) : 0;
+  var bob7 = f.danse ? Math.abs(Math.sin(f.animT * 7)) * 1.3 : 0;
+  var lb7 = f.danse ? sw7 * 2.2 : o.legB;
+  var lf7 = f.danse ? -sw7 * 2.2 : o.legF;
+  g.save();
+  g.translate(sw7 * 1.3, -bob7);
+  // pantalon large + rangers
+  bLimb(g, -2.2, 13, -2.2 + lb7, 2.6, 3.9, '#2e3a58');
+  bLimb(g,  2.2, 13,  2.2 + lf7, 2.6, 3.9, '#38466a');
+  bRR(g, -2.2 + lb7 - 3, 0, 6.2, 3.4, 1.4, '#14161c');
+  bRR(g,  2.2 + lf7 - 3, 0, 6.2, 3.4, 1.4, '#14161c');
+  if (!f.danse) drawArmS(g, f, o.armB, -1, peau);
+  // debardeur
+  g.fillStyle = '#f2ece0';
+  rrPath(g, -4.6, -24.6, 9.2, 6.6, 2.2); g.fill();
+  // salopette, une bretelle pendante
+  g.fillStyle = '#3f5280';
+  rrPath(g, -5, -19.6, 10, 8.2, 2.2); g.fill();
+  g.fillRect(-3.4, -24.4, 1.5, 5.2);
+  g.strokeStyle = '#3f5280'; g.lineWidth = 1.3;
+  g.beginPath(); g.moveTo(2.8, -19.8); g.quadraticCurveTo(5, -22.6, 3.6, -24.8); g.stroke();
+  // le crane : LE COTE RASE
+  bEll(g, -1.2, 27.4, 2.3, 2.7, peau);
+  g.fillStyle = 'rgba(48,38,52,0.42)';
+  g.beginPath(); g.ellipse(-1.8, -28.6, 2, 2.2, 0, 0, TAU); g.fill();
+  drawFace(g, 0.7, 27, 0.92, { skin: peau, angry: 0.15 });
+  // septum
+  g.strokeStyle = '#c9d2e4'; g.lineWidth = 0.5;
+  g.beginPath(); g.arc(2.2, -26.4, 0.7, 0.2, Math.PI - 0.2); g.stroke();
+  // LA MECHE fluo, longue d un seul cote, qui balance
+  g.fillStyle = mech;
+  g.beginPath();
+  g.moveTo(-1.8, -30.6);
+  g.quadraticCurveTo(2.4, -32.4, 3.3, -28.4);
+  g.quadraticCurveTo(4.1 + sw7 * 0.9, -24, 2.7 + sw7 * 1.3, -19.4);
+  g.lineTo(0.9 + sw7 * 1.1, -20.2);
+  g.quadraticCurveTo(2.1, -25.4, 0.5, -30.2);
+  g.closePath(); g.fill();
+  // les bras en l air quand la transe la prend
+  if (f.danse){
+    g.strokeStyle = peau; g.lineWidth = 2; g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(-3, -23.4); g.quadraticCurveTo(-6.4, -27.6, -5 + sw7 * 2, -32.8);
+    g.moveTo(3, -23.4); g.quadraticCurveTo(6.4, -27.6, 5 + sw7 * 2, -32.8);
+    g.stroke();
+  } else {
+    drawArmS(g, f, o.armF, 1, peau);
+  }
+  g.restore();
+}
+
 function drawBodyPunk(g, f, o){
   var crete = ['#63d68f','#ff5cf0','#ff8a3c'][(f.seed || 0) % 3];
   bLimb(g, -2.2, 13, -2.2 + o.legB, 2.3, 3.8, '#2a2a32');
@@ -7129,6 +7229,7 @@ function drawBody(g, f){
   else if (f.kind==='gilet') drawBodyGilet(g, f, o);
   else if (f.kind==='chien') drawBodyChien(g, f, o);
   else if (f.kind==='rasta') drawBodyRasta(g, f, o);
+  else if (f.kind==='danseuse') drawBodyDanseuse(g, f, o);
   else if (f.kind==='sdf') drawBodySdf(g, f, o);
   else if (f.kind==='dj') drawBodyDJ(g, f, o);
   else if (f.kind==='veteran') drawBodyVeteran(g, f, o);
@@ -10306,6 +10407,7 @@ window.__crs = {
   VILLE_SPOTS: VILLE_SPOTS,
   SHOP_ARMES: SHOP_ARMES,
   LOIS: LOIS,
+  MANIF_BASE: MANIF_BASE,
   INSULTES: INSULTES,
   PLEURS: PLEURS,
   PANIQUES: PANIQUES,
