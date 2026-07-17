@@ -1027,6 +1027,13 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (this.isPlayer && this.up && this.up.armor > 0 && !blocked && dmg > 0){
     dmg = Math.max(1, Math.round(dmg * (1 - this.up.armor)));
   }
+  if (!this.isPlayer && MANIF_BASE[this.kind] && dmg > 0 && !this.dead &&
+      this.hp > 0 && this.hp < this.hpMax * 0.3 && !this.panique && !this.paniqueDue &&
+      this.state !== 'flee' && Math.random() < 0.16){
+    this.paniqueDue = true;                       // la panique attend la fin du choc
+    this.momentT = 0;
+  }
+  if (this.momentT > 0 && dmg > 0) this.momentT = 0;   // frappe : le moment est fini
   if (this.kind === 'clochard' && dmg > 0 && !this.isPlayer){
     spawnItem('piece', clamp(this.x + rnd(-10, 10), 16, MAP_W - 16), clamp(this.z + rnd(-4, 6), Z_MIN, Z_MAX), rnd(18, 30));
     if (!this.ripouDonne && srcTag === 'player'){
@@ -1322,6 +1329,20 @@ var ENEMY_TYPES = {
                 slogans:['VOUS REPRENDREZ BIEN UNE MERGUEZ ?','PERSONNE NE TOUCHE A MON STAND !'] }
 };
 
+var MANIF_BASE = { casseur:1, etudiant:1, antifa:1, anarchiste:1, ecolo:1, artiste:1,
+                   ouvrier:1, tambour:1, costaud:1, leader:1, punk:1, junkie:1 };
+var INSULTES = [
+  'JE PAIE TON SALAIRE !', 'MILICE DU CAPITAL !', 'VENDU !', 'REND L ARGENT !',
+  'TU SERS LE SYSTEME !', 'ON LACHE RIEN !', 'HONTE A TOI !', 'MA GRAND-MERE COURT PLUS VITE !'
+];
+var PLEURS = [
+  'SNIF... C ETAIT PACIFIQUE...', 'JE VOULAIS JUSTE MARCHER !', 'MAMAN...',
+  'C EST QUE MA DEUXIEME MANIF...', 'MES LUNETTES !!'
+];
+var PANIQUES = [
+  'J AI STAGE DEMAIN !', 'MON VELO EST MAL GARE !', 'JE SUIS JUSTE VENU POUR L AMBIANCE !',
+  'J AI PARTIEL LUNDI !!'
+];
 var ZONE_POOLS = [
   ['casseur','casseur','antifa','anarchiste','etudiant'],            // RUE COMMERCANTE
   ['tambour','casseur','casseur','sdf','etudiant'],                  // LA PLACE
@@ -1409,6 +1430,13 @@ var ATTACKS = {
 };
 
 /* adversaire au sol le plus proche (pour le coup de pied et le menottage) */
+function nearestDeadAlly(f){
+  if (!game.p2Active) return null;
+  var ally = f === game.player ? game.player2 : game.player;
+  if (!ally || !ally.dead || ally.remove) return null;
+  if (Math.abs(ally.x - f.x) < 20 && Math.abs(ally.z - f.z) < 13) return ally;
+  return null;
+}
 function nearestDowned(f, avecCuffed){
   var best = null, bd = 1e9;
   for (var i=0;i<game.fighters.length;i++){
@@ -1438,6 +1466,7 @@ Fighter.prototype.update = function(dt){
   if (this.invulnT > 0) this.invulnT -= dt;
   if (this.litT > 0) this.litT -= dt;
   if (this.ondeHitT > 0) this.ondeHitT -= dt;
+  if (this.woufHitT > 0) this.woufHitT -= dt;
   if (this.pwrHitT > 0) this.pwrHitT -= dt;
   if (!this.isPlayer && this.kind === 'rasta' && !this.dead &&
       this.state !== 'cuffed' && this.state !== 'down' && this.state !== 'fall' && this.state !== 'flee'){
@@ -1801,6 +1830,8 @@ Fighter.prototype.update = function(dt){
       var ct = this.cuffTarget;
       var cok = ct && !ct.dead && !ct.remove && ct.state === 'down' &&
                 Math.abs(ct.x - this.x) < 24 && Math.abs(ct.z - this.z) < 14;
+      if (ct && ct.isPlayer && ct.dead && !ct.remove &&
+          Math.abs(ct.x - this.x) < 24 && Math.abs(ct.z - this.z) < 14) cok = true;
       if (!cok){
         this.cuffTarget = null;
         this.setState('idle');
@@ -1813,6 +1844,22 @@ Fighter.prototype.update = function(dt){
           vx: rnd(-10,10), vy: rnd(10,26), vz: 0, t: rnd(0.15,0.3), col: '#7ec8ff' });
       }
       if (this.stateT >= (game.shop.poigne ? 0.78 : 1.2)){
+        if (ct.isPlayer){
+          // LES MENOTTES DE LA VIE : le coequipier revient
+          ct.dead = false;
+          ct.koAnnonce = false;
+          ct.hp = Math.min(ct.hpMax, 45);
+          ct.invulnT = 2;
+          ct.zapT = 0; ct.burnT = 0;
+          ct.setState('getup');
+          addFloater(ct.x, ct.screenY()-58, 'MENOTTE A LA VIE !', '#7ce38b', 1.4);
+          game.particles.push({ star:true, x:ct.x, z:ct.z, y:14, t:0.25, r:9, col:'#7ce38b' });
+          SFX.heal();
+          stingerCuff();
+          this.cuffTarget = null;
+          this.setState('idle');
+          break;
+        }
         var cpts = Math.round((120 + game.wave*12) * (1 + Math.min(2, game.combo*0.05)) * (game.lois.ruissellement ? 1.25 : 1));
         game.score += cpts; game.kills = (game.kills||0) + 1;
         game.combo++; game.comboT = game.comboWin || 1.6;
@@ -1884,15 +1931,31 @@ Fighter.prototype.update = function(dt){
     case 'down':
       if (this.zapT > 0){ this.stateT = Math.min(this.stateT, 0.1); }   // electrifie : cloue au sol, inactif
       if (this.stateT >= (this.dead ? 0.8 : 0.9)){
-        if (this.dead){ this.remove = true; }
+        if (this.dead){
+          if (!this.isPlayer) this.remove = true;   // le corps d un joueur RESTE au sol
+          else if (!this.koAnnonce){
+            this.koAnnonce = true;
+            addFloater(this.x, GROUND_SY + this.z - 50, this.isP2 ? 'JOUEUR 2 K.O. !' : 'JOUEUR 1 K.O. !', '#ff9d8a', 1.3);
+            if (!anyPlayerAlive()) game.state = 'gameover';
+          }
+        }
         else this.setState('getup');
       }
       break;
 
     case 'getup':
+      if (!this.isPlayer && MANIF_BASE[this.kind] && !this.pleureRoll){
+        this.pleureRoll = true;
+        if (Math.random() < 0.22){ this.pleureAuLever = true; }
+      }
       if (this.stateT >= 0.35){
         if (this.isPlayer) this.invulnT = 1.0;   // 1 s d invincibilite au releve
         this.setState('idle');
+        if (this.pleureAuLever){
+          this.pleureAuLever = false; this.pleureRoll = false;
+          this.momentT = 1.5; this.momentKind = 'pleure';
+          addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6);
+        } else { this.pleureRoll = false; }
       }
       break;
 
@@ -2073,9 +2136,30 @@ Fighter.prototype.playerControl = function(dt, slow){
       }
     } else if (this.sigCd <= 0){
       var sgm = this.up ? this.up.sigMul : 1;
-      if (this.charId === 'ministre'){ this.sigCd = 8 * sgm;  this.sigMode = '493';  this.setState('shout'); this.hitDone = false; return; }
-      if (this.charId === 'k9'){       this.sigCd = 7 * sgm;  this.sigMode = 'bark'; this.setState('shout'); this.hitDone = false; return; }
-      if (this.charId === 'croise'){   this.sigCd = 10 * sgm; this.sigMode = 'vult'; this.setState('shout'); this.hitDone = false; return; }
+      if (this.charId === 'ministre'){
+        this.sigCd = 6 * sgm;
+        game.projectiles.push({ type:'decret', vise:true, owner:this,
+          x:this.x + this.dir*8, z:this.z, y:20, vx:this.dir*230, vy:8, vz:0, spin:0 });
+        SFX.throwS();
+        addFloater(this.x, this.screenY()-56, 'PAR DECRET.', '#cfd4e0');
+        this.sigMode = 'tir'; this.setState('shout'); this.hitDone = true; return;
+      }
+      if (this.charId === 'k9'){
+        this.sigCd = 6 * sgm;
+        game.projectiles.push({ type:'wouf', owner:this,
+          x:this.x + this.dir*10, z:this.z, y:0, vx:this.dir*190, vy:0, vz:0, spin:0, vieT:0.62 });
+        SFX.bark();
+        addFloater(this.x, this.screenY()-52, 'WOUF !', '#8fd3f4');
+        this.sigMode = 'tir'; this.setState('shout'); this.hitDone = true; return;
+      }
+      if (this.charId === 'croise'){
+        this.sigCd = 7 * sgm;
+        game.projectiles.push({ type:'croix', owner:this,
+          x:this.x + this.dir*8, z:this.z, y:18, vx:this.dir*235, vy:0, vz:0, spin:0 });
+        SFX.epee();
+        addFloater(this.x, this.screenY()-56, 'QUE LA FOI PORTE.', '#ffd166');
+        this.sigMode = 'tir'; this.setState('shout'); this.hitDone = true; return;
+      }
     }
   }
 
@@ -2145,12 +2229,12 @@ Fighter.prototype.playerAttack = function(){
     var seqG = recentTaps(this.taps || tapBuf);
     var spG = detectSpecial(seqG, this.dir);
     if (spG && this.trySpecial(spG)) return;
-    var dwn2 = nearestDowned(this);
+    var dwn2 = nearestDowned(this) || nearestDeadAlly(this);
     if (dwn2){
       this.cuffTarget = dwn2;
       this.dir = dwn2.x >= this.x ? 1 : -1;
       this.setState('cuffing');
-      addFloater(this.x, this.screenY()-52, 'MENOTTAGE...', '#7ec8ff');
+      addFloater(this.x, this.screenY()-52, dwn2.isPlayer ? 'REANIMATION...' : 'MENOTTAGE...', dwn2.isPlayer ? '#7ce38b' : '#7ec8ff');
       return;
     }
     if (this.pushCd <= 0){
@@ -2505,6 +2589,45 @@ Fighter.prototype.aiControl = function(dt, slow){
     if (this.state !== 'walk' && this.state !== 'idle') return;
     this.setState(jmv !== 0 ? 'walk' : 'idle');
     return;
+  }
+  // LES MOMENTS DE GAUCHISTE : la foule de base vit sa vie
+  if (MANIF_BASE[this.kind]){
+    if (this.paniqueDue && !this.dead && (this.state === 'idle' || this.state === 'walk')){
+      this.paniqueDue = false;
+      this.panique = true;
+      this.momentT = 0;
+      this.setState('flee');
+      this.fleeT = 999;
+      addFloater(this.x, this.screenY() - 56, PANIQUES[irnd(0, PANIQUES.length - 1)], '#ffd166', 1.5);
+      return;
+    }
+    if (this.momentT > 0){
+      this.momentT -= dt;
+      this.vx = 0;
+      if (this.momentKind === 'pleure' && Math.random() < 0.25){
+        game.particles.push({ x:this.x + rnd(-2,2), z:this.z, y:rnd(20,26),
+          vx:rnd(-3,3), vy:-26, vz:0, t:0.5, col:'#7ec8ff' });
+      }
+      if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
+      return;                                    // il est occupe : fenetre d attaque !
+    }
+    if (this.momentCd === undefined) this.momentCd = rnd(3, 8);
+    this.momentCd -= dt;
+    if (this.momentCd <= 0 && (this.state === 'idle' || this.state === 'walk')){
+      this.momentCd = rnd(7, 13);
+      var mdx6 = Math.abs(p.x - this.x);
+      if (mdx6 > 34 && mdx6 < 130){
+        var tir6 = Math.random();
+        if (tir6 < 0.5){
+          this.momentT = 1.15; this.momentKind = 'insulte';
+          this.dir = p.x >= this.x ? 1 : -1;
+          addFloater(this.x, this.screenY() - 52, INSULTES[irnd(0, INSULTES.length - 1)], '#ffb0a0', 1.5);
+        } else if (tir6 < 0.75 && this.hp < this.hpMax * 0.75){
+          this.momentT = 1.5; this.momentKind = 'pleure';
+          addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6);
+        }
+      }
+    }
   }
   this.aiT -= dt;
   this.aiModeT -= dt;
@@ -3244,6 +3367,22 @@ function updateProjectiles(dt){
   for (var i=game.projectiles.length-1;i>=0;i--){
     var p = game.projectiles[i];
     p.x += p.vx*dt; p.z += p.vz*dt;
+    if (p.type === 'wouf'){
+      p.vieT -= dt;
+      p.x += p.vx * dt;
+      if (p.vieT <= 0 || p.x < 12 || p.x > MAP_W - 12){ game.projectiles.splice(i,1); continue; }
+      for (var wj5 = 0; wj5 < game.fighters.length; wj5++){
+        var wt5 = game.fighters[wj5];
+        if (wt5.isPlayer || wt5.dead || wt5.flying || wt5.kind === 'journaliste' || wt5.kind === 'clochard' ||
+            wt5.state === 'cuffed' || wt5.state === 'down' || wt5.state === 'flee') continue;
+        if (wt5.woufHitT > 0) continue;
+        if (Math.abs(wt5.x - p.x) < 10 && Math.abs(wt5.z - p.z) < 13){
+          wt5.hurt(6, 190, p.vx > 0 ? 1 : -1, true, 'player');
+          wt5.woufHitT = 0.5;
+        }
+      }
+      continue;
+    }
     if (p.type === 'onde'){
       if (p.waitT > 0){ p.waitT -= dt; continue; }        // les ondes du drop partent en cadence
       p.x += p.vx * dt;
@@ -3261,8 +3400,8 @@ function updateProjectiles(dt){
       }
       continue;
     }
-    p.vy -= GRAV*(p.crochet ? 0 : (p.lob ? 1 : (p.lbd ? 0.35 : (p.type==='decret' ? 0.3 : 1))))*dt; p.y += p.vy*dt;
-    if (p.type==='decret') p.vx *= Math.pow(0.62, dt); // le papier freine et volete
+    p.vy -= GRAV*(p.crochet || p.type==='croix' ? 0 : (p.lob ? 1 : (p.lbd ? 0.35 : (p.type==='decret' ? (p.vise ? 0.08 : 0.3) : 1))))*dt; p.y += p.vy*dt;
+    if (p.type==='decret' && !p.vise) p.vx *= Math.pow(0.62, dt); // le papier freine et volete (pas le decret vise)
     if (!p.crochet) p.spin += dt*14;
     if (p.crochet && Math.abs(p.x - (p.startX || 0)) > 190){ game.projectiles.splice(i,1); continue; }
     if ((p.type==='molotov' || p.type==='merguez') && Math.random() < 0.55){
@@ -3326,10 +3465,19 @@ function updateProjectiles(dt){
             t.hookedBy = p.owner;
             addFloater(t.x, t.screenY()-54, 'FERRE !', '#ffd166');
           }
+        } else if (p.type==='croix'){
+          t.hurt(12, 90, p.vx>0?1:-1, false, 'player');
+          t.burnT = Math.max(t.burnT || 0, 2);
+          addParticles(t.x, t.z, 8, 16, '#ffd166', 70);
         } else if (p.type==='decret'){
-          t.hurt(4, 25, p.vx>0?1:-1, false, p.owner.isPlayer?'player':'enemy');
+          t.hurt(p.vise ? 8 : 4, p.vise ? 60 : 25, p.vx>0?1:-1, false, p.owner.isPlayer?'player':'enemy');
           t.confusedT = 1.6;
-          addFloater(t.x, t.screenY()-48, 'PROMESSES...', '#cfd4e0');
+          if (p.vise && p.owner.isPlayer && !t.isPlayer){
+            t.markedT = Math.max(t.markedT || 0, 2.5);
+            addFloater(t.x, t.screenY()-56, 'VISE PAR DECRET', '#ffd166');
+          } else {
+            addFloater(t.x, t.screenY()-48, 'PROMESSES...', '#cfd4e0');
+          }
         }
         break;
       }
@@ -7240,6 +7388,31 @@ function drawBarrier(g, b){
   }
 }
 
+function drawCroix(g, p){
+  var sx = p.x - game.camX, sy = GROUND_SY + p.z - p.y;
+  g.save();
+  g.translate(sx, sy);
+  g.rotate(game.time * 9 * (p.vx > 0 ? 1 : -1));
+  g.fillStyle = '#ffd166';
+  g.fillRect(-1.2, -5, 2.4, 10);
+  g.fillRect(-3.8, -1.8, 7.6, 2.4);
+  g.strokeStyle = 'rgba(255,209,102,0.4)'; g.lineWidth = 1;
+  g.strokeRect(-1.2, -5, 2.4, 10);
+  g.restore();
+}
+function drawWouf(g, p){
+  var sx = p.x - game.camX, sy = GROUND_SY + p.z;
+  g.save();
+  g.globalAlpha = clamp(p.vieT / 0.62, 0, 1) * 0.8;
+  for (var w6 = 0; w6 < 3; w6++){
+    g.strokeStyle = w6 % 2 === 0 ? 'rgba(143,211,244,0.8)' : 'rgba(230,240,255,0.6)';
+    g.lineWidth = 1.6 - w6 * 0.3;
+    g.beginPath();
+    g.arc(sx - (p.vx > 0 ? 6 : -6), sy - 8, 6 + w6 * 4, (p.vx > 0 ? -0.7 : Math.PI - 0.7), (p.vx > 0 ? 0.7 : Math.PI + 0.7));
+    g.stroke();
+  }
+  g.restore();
+}
 function drawOnde(g, p){
   if (p.waitT > 0) return;
   var sx = p.x - game.camX;
@@ -7261,6 +7434,8 @@ function drawOnde(g, p){
 
 function drawProjectile(g, p){
   if (p.type === 'onde'){ drawOnde(g, p); return; }
+  if (p.type === 'croix'){ drawCroix(g, p); return; }
+  if (p.type === 'wouf'){ drawWouf(g, p); return; }
   var sx = p.x-game.camX, sy = GROUND_SY+p.z-p.y;
   drawShadow(g, sx, GROUND_SY+p.z, 3);
   g.save(); g.translate(sx,sy); g.rotate(p.spin);
@@ -10131,6 +10306,9 @@ window.__crs = {
   VILLE_SPOTS: VILLE_SPOTS,
   SHOP_ARMES: SHOP_ARMES,
   LOIS: LOIS,
+  INSULTES: INSULTES,
+  PLEURS: PLEURS,
+  PANIQUES: PANIQUES,
   SHOP_MARCHAND: SHOP_MARCHAND,
   SHOP_ACADEMIE: SHOP_ACADEMIE,
   shopAcheter: shopAcheter,
