@@ -1034,6 +1034,12 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     this.momentT = 0;
   }
   if (this.momentT > 0 && dmg > 0) this.momentT = 0;   // frappe : le moment est fini
+  if (this.kind === 'medic' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
+    this.ripouDonne = true;
+    game.ripou = Math.min(10, (game.ripou || 0) + 1);
+    addFloater(this.x, this.screenY() - 62, 'T AS PAS LE DROIT, JE SUIS MEDIC ! [RIPOU +1]', '#ff6b5e', 1.4);
+    this.soinT = 0; this.patient = null;
+  }
   if (this.kind === 'pacifiste' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 1);
@@ -1191,7 +1197,7 @@ Fighter.prototype.die = function(dirFrom){
     for (var rd=0; rd<game.fighters.length; rd++){
       var rf = game.fighters[rd];
       if (!rf.isPlayer && !rf.dead && rf !== this && rf.state !== 'cuffed' &&
-          rf.state !== 'flee' && rf.kind !== 'journaliste' && rf.kind !== 'clochard' && rf.kind !== 'pacifiste') resteD++;
+          rf.state !== 'flee' && rf.kind !== 'journaliste' && rf.kind !== 'clochard' && rf.kind !== 'pacifiste' && rf.kind !== 'medic') resteD++;
     }
     if (resteD === 0){
       game.slowmoT = this.finalBoss ? 1.1 : 0.55;
@@ -1307,6 +1313,10 @@ var ENEMY_TYPES = {
                 slogans:['J ETAIS LA AVANT TOI.','C EST MA RUE.','UNE PIECE, CHEF ?'] },
   gilet:      { name:'Gilet jaune', hp:35, spd:48, pal:null, atk:['epunch'], gilet:true,
                 slogans:['ON EST LA ! ON EST LA !','ROND-POINT A VIE.','MACRON, ENTENDS-TU ?'] },
+  medic:      { name:'Street medic', hp:40, spd:70, pal:null, atk:[], medic:true,
+                slogans:['MEDIC ! MEDIC !','JE SUIS SECOURISTE, PAS MANIFESTANT !',
+                         'SERUM PHY, LES YEUX EN L AIR !','J AI RIEN FAIT, MOI !',
+                         'RESPIRE, CA VA ALLER.'] },
   pacifiste:  { name:'Manifestant pacifiste', hp:20, spd:0, pal:null, atk:[], pacifiste:true,
                 slogans:['PAS DE VIOLENCE !','NOUS SOMMES PACIFIQUES !','ON RESTE DIGNES !',
                          'LA POLICE AVEC NOUS !','ASSIS ! ASSIS !','ON NE BOUGERA PAS.'] },
@@ -1350,6 +1360,30 @@ var INSULTES = [
 var PLEURS = [
   'SNIF... C ETAIT PACIFIQUE...', 'JE VOULAIS JUSTE MARCHER !', 'MAMAN...',
   'C EST QUE MA DEUXIEME MANIF...', 'MES LUNETTES !!'
+];
+var AG_PHRASES = [
+  'POINT D ORDRE !', 'TOUR DE PAROLE !', 'MOTION DE DEFIANCE !', 'QUI EST CONTRE ?',
+  'ON REVOTE.', 'JE FAIS UN POINT PROCEDURE.', 'C EST PAS A L ORDRE DU JOUR !',
+  'ON PEUT LEVER LA MAIN ?', 'JE ME SENS PAS ECOUTE.'
+];
+var FIN_AG = [
+  'PAS DE CONSENSUS.', 'MOTION REJETEE.', 'ON EN REPARLE JEUDI.',
+  'ON A PLUS LE QUORUM...', 'BON. ON REPREND L EMEUTE.'
+];
+var SCISSIONS = [
+  'TU ES UN REFORMISTE !', 'TROTSKISTE !', 'C EST TOI LE BOURGEOIS !',
+  'TU AS VOTE AU SECOND TOUR !', 'RENEGAT !', 'ET TA CONSOMMATION DE VIANDE ?',
+  'TA MERE A UNE ASSURANCE-VIE !', 'TU T ES PAS DECONSTRUIT.'
+];
+var CHANTS = [
+  'TOUT LE MONDE DETESTE LA POLICE !', 'ON EST LA ! ON EST LA !',
+  'ET LA GREVE... GENERALE !', 'PARIS, DEBOUT, SOULEVE-TOI !',
+  'SIAMO TUTTI ANTIFASCISTI !', 'ANTI, ANTI, ANTICAPITALISTE !',
+  'LA RUE, ELLE EST A QUI ? A NOUS !'
+];
+var CLOPES = [
+  'PAUSE CLOPE, JE REVIENS.', 'QUELQU UN A DU FEU ?', 'J AI PLUS DE FILTRES...',
+  'JE ROULE ET J ARRIVE.'
 ];
 var PANIQUES = [
   'J AI STAGE DEMAIN !', 'MON VELO EST MAL GARE !', 'JE SUIS JUSTE VENU POUR L AMBIANCE !',
@@ -1589,6 +1623,13 @@ Fighter.prototype.update = function(dt){
   if (this.gasT > 0) this.gasT -= dt;
   if (this.pushCd > 0) this.pushCd -= dt;
   if (this.buffT > 0) this.buffT -= dt;
+  if (this.chanteT > 0){
+    this.chanteT -= dt;
+    if (!this.dead && this.state !== 'cuffed' && Math.random() < 0.16){
+      game.particles.push({ x:this.x + rnd(-5, 5), z:this.z, y:rnd(24, 32),
+        vx:rnd(-3, 3), vy:16, vz:0, t:0.5, col:'#ff8a5c', ember:true });
+    }
+  }
   if (this.confusedT > 0) this.confusedT -= dt;
   if (this.isPlayer){
     if (this.lbdCd > 0){
@@ -2582,6 +2623,56 @@ Fighter.prototype.aiControl = function(dt, slow){
     this.setState('idle');
     return;                                     // assis en tailleur. il chante. il ne bougera pas.
   }
+  if (this.kind === 'medic'){
+    if (this.soinT > 0){                        // il est en train de soigner : rien ne le distrait
+      this.soinT -= dt;
+      this.vx = 0;
+      if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
+      if (Math.random() < 0.25){
+        game.particles.push({ x:this.x + rnd(-4, 4), z:this.z, y:rnd(12, 22),
+          vx:0, vy:12, vz:0, t:0.4, col:'#7ce38b' });
+      }
+      if (this.soinT <= 0 && this.patient && !this.patient.dead && this.patient.state !== 'cuffed' &&
+          Math.abs(this.patient.x - this.x) < 22 && Math.abs(this.patient.z - this.z) < 14){
+        this.patient.hp = Math.min(this.patient.hpMax, this.patient.hp + 18);
+        addFloater(this.patient.x, this.patient.screenY() - 50, 'SERUM PHY +18', '#7ce38b', 1.2);
+        game.particles.push({ star:true, x:this.patient.x, z:this.patient.z, y:10, t:0.2, r:6, col:'#7ce38b' });
+        this.patient = null;
+        this.soinCd = 3;
+      }
+      return;
+    }
+    if (this.soinCd > 0) this.soinCd -= dt;
+    // le blesse le plus mal en point dans les parages
+    var pat8 = null, mal8 = 0.86;
+    for (var mq8 = 0; mq8 < game.fighters.length; mq8++){
+      var mf8 = game.fighters[mq8];
+      if (mf8.isPlayer || mf8 === this || mf8.dead || mf8.kind === 'medic') continue;
+      if (mf8.state === 'cuffed' || mf8.state === 'flee' || mf8.kind === 'clochard') continue;
+      if (Math.abs(mf8.x - this.x) > 170) continue;
+      var rat8 = mf8.hp / mf8.hpMax;
+      if (rat8 < mal8){ mal8 = rat8; pat8 = mf8; }
+    }
+    if (pat8 && !(this.soinCd > 0) && (this.state === 'idle' || this.state === 'walk')){
+      var mdx8 = pat8.x - this.x, mdz8 = pat8.z - this.z;
+      this.dir = mdx8 >= 0 ? 1 : -1;
+      if (Math.abs(mdx8) < 14 && Math.abs(mdz8) < 10){
+        this.patient = pat8;
+        this.soinT = 1.1;
+        this.vx = 0;
+        this.setState('idle');
+        addFloater(this.x, this.screenY() - 54, 'MEDIC !', '#7ce38b', 1.3);
+        return;
+      }
+      this.x += this.dir * this.speed * dt;
+      if (Math.abs(mdz8) > 2) this.z = clamp(this.z + (mdz8 > 0 ? 1 : -1) * this.speed * 0.7 * dt, Z_MIN, Z_MAX);
+      this.setState('walk');
+      return;
+    }
+    // personne a rafistoler : il reste en retrait, pres des siens
+    if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
+    return;                                     // il ne frappe jamais : il soigne.
+  }
   if (this.kind === 'gilet'){
     if (this.boomT > 0) return;                 // il s arme : plus rien ne l interesse
     var gdx3 = p.x - this.x, gaz3 = Math.abs(p.z - this.z);
@@ -2678,6 +2769,41 @@ Fighter.prototype.aiControl = function(dt, slow){
         game.particles.push({ x:this.x + rnd(-2,2), z:this.z, y:rnd(20,26),
           vx:rnd(-3,3), vy:-26, vz:0, t:0.5, col:'#7ec8ff' });
       }
+      if (this.momentKind === 'clope' && Math.random() < 0.3){
+        game.particles.push({ x:this.x + this.dir*3, z:this.z, y:rnd(24,28),
+          vx:rnd(-2,2), vy:14, vz:0, t:0.7, col:'#8b96ad' });      // la fumee monte
+      }
+      if (this.momentKind === 'ag'){
+        // les applaudissements silencieux : les mains qui fretillent
+        if (Math.random() < 0.22){
+          game.particles.push({ x:this.x + rnd(-5,5), z:this.z, y:rnd(26,32),
+            vx:rnd(-9,9), vy:6, vz:0, t:0.4, col:'#ffe9a8' });
+        }
+        if (this.agParle){
+          this.agT -= dt;
+          if (this.agT <= 0){
+            this.agT = 0.95;
+            addFloater(this.x, this.screenY() - 54, AG_PHRASES[irnd(0, AG_PHRASES.length - 1)], '#ffd166', 1.2);
+          }
+        }
+        if (this.momentT <= 0){
+          if (this.agParle){
+            addFloater(this.x, this.screenY() - 58, FIN_AG[irnd(0, FIN_AG.length - 1)], '#8b96ad', 1.6);
+            this.agParle = false;
+          }
+          this.momentKind = '';
+        }
+      }
+      if (this.momentKind === 'scission' && this.momentT <= 0){
+        var sc9 = this.scissionCible;
+        this.scissionCible = null; this.momentKind = '';
+        if (sc9 && !sc9.dead && sc9.state !== 'cuffed' &&
+            Math.abs(sc9.x - this.x) < 36 && Math.abs(sc9.z - this.z) < 18){
+          sc9.hurt(5, 45, sc9.x >= this.x ? 1 : -1, false, 'enemy');   // le debat s envenime
+          addFloater(sc9.x, sc9.screenY() - 46, 'AIE !', '#ff9d5c', 1.1);
+          SFX.hit();
+        }
+      }
       if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
       return;                                    // il est occupe : fenetre d attaque !
     }
@@ -2685,16 +2811,35 @@ Fighter.prototype.aiControl = function(dt, slow){
     this.momentCd -= dt;
     if (this.momentCd <= 0 && (this.state === 'idle' || this.state === 'walk')){
       this.momentCd = rnd(7, 13);
+      // LA SCISSION : un camarade d une autre chapelle a portee de voix ?
+      var cam9 = null;
+      for (var sq9 = 0; sq9 < game.fighters.length; sq9++){
+        var sf9 = game.fighters[sq9];
+        if (sf9 === this || !MANIF_BASE[sf9.kind] || sf9.dead || sf9.kind === this.kind) continue;
+        if (sf9.state === 'cuffed' || sf9.state === 'flee' || sf9.momentT > 0) continue;
+        if (sf9.state !== 'idle' && sf9.state !== 'walk') continue;
+        if (Math.abs(sf9.x - this.x) < 30 && Math.abs(sf9.z - this.z) < 16){ cam9 = sf9; break; }
+      }
       var mdx6 = Math.abs(p.x - this.x);
-      if (mdx6 > 34 && mdx6 < 130){
-        var tir6 = Math.random();
-        if (tir6 < 0.5){
+      var tir6 = Math.random();
+      if (cam9 && tir6 < 0.3){
+        this.momentT = 1.6; this.momentKind = 'scission'; this.scissionCible = cam9;
+        this.dir = cam9.x >= this.x ? 1 : -1;
+        addFloater(this.x, this.screenY() - 52, SCISSIONS[irnd(0, SCISSIONS.length - 1)], '#ff9d5c', 1.7);
+        cam9.momentT = 1.7; cam9.momentKind = 'scission'; cam9.scissionCible = this;
+        cam9.dir = this.x >= cam9.x ? 1 : -1;
+        cam9.momentCd = rnd(7, 13);
+      } else if (mdx6 > 34 && mdx6 < 130){
+        if (tir6 < 0.45){
           this.momentT = 1.15; this.momentKind = 'insulte';
           this.dir = p.x >= this.x ? 1 : -1;
           addFloater(this.x, this.screenY() - 52, INSULTES[irnd(0, INSULTES.length - 1)], '#ffb0a0', 1.5);
-        } else if (tir6 < 0.75 && this.hp < this.hpMax * 0.75){
+        } else if (tir6 < 0.65 && this.hp < this.hpMax * 0.75){
           this.momentT = 1.5; this.momentKind = 'pleure';
           addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6);
+        } else if (tir6 < 0.8){
+          this.momentT = 1.8; this.momentKind = 'clope';
+          addFloater(this.x, this.screenY() - 52, CLOPES[irnd(0, CLOPES.length - 1)], '#c9d2e4', 1.5);
         }
       }
     }
@@ -3731,6 +3876,10 @@ function startWave(n){
     var jp = spawnEnemy('journaliste');
     jp.pressT = 12;
   }
+  if (game.zone >= 1 && Math.random() < 0.45 && !game.fighters.some(function(mf){ return mf.kind === 'medic' && !mf.dead; })){
+    var md8 = spawnEnemy('medic');
+    md8.x = clamp(game.camX + W + 30, 40, MAP_W - 30);
+  }
   if (game.zone >= 2 && Math.random() < 0.35 && !game.fighters.some(function(df){ return df.kind === 'drone' && !df.dead; })){
     spawnEnemy('drone');
   }
@@ -3926,6 +4075,7 @@ function resetGame(){
   game.meute = []; game.flash49 = 0;
   game.shop = {}; game.shopSel = 0; game.shopRefusT = 0;
   game.lois = {}; game.voteDispo = false; game.panier = [];
+  game.agCd = rnd(12, 20);
   game.slowmoT = 0;
   game.barriers = []; game.graffitis = [];
   var cdef = CHARS[game.selChar] || CHARS[0];
@@ -4951,6 +5101,56 @@ function update(dt){
   }
 
   // sortie de zone : on marche vers la droite, fondu, zone suivante
+  // L ASSEMBLEE GENERALE SPONTANEE : au milieu de l emeute, il faut debattre
+  if (game.state === 'play'){
+    game.agCd = (game.agCd === undefined ? rnd(12, 20) : game.agCd - dt);
+    if (game.agCd <= 0){
+      game.agCd = rnd(18, 28);
+      for (var ai9 = 0; ai9 < game.fighters.length; ai9++){
+        var af9 = game.fighters[ai9];
+        if (!MANIF_BASE[af9.kind] || af9.dead || af9.momentT > 0) continue;
+        if (af9.state !== 'idle' && af9.state !== 'walk') continue;
+        if (Math.abs(af9.x - (game.camX + W/2)) > W/2 - 24) continue;      // l AG se tient a l ecran
+        var groupe9 = [];
+        for (var aj9 = 0; aj9 < game.fighters.length; aj9++){
+          var bf9 = game.fighters[aj9];
+          if (!MANIF_BASE[bf9.kind] || bf9.dead || bf9.state === 'cuffed' || bf9.state === 'flee') continue;
+          if (Math.abs(bf9.x - af9.x) < 48 && Math.abs(bf9.z - af9.z) < 26) groupe9.push(bf9);
+        }
+        if (groupe9.length >= 3){
+          if (Math.random() < 0.5){
+            // ILS DEBATTENT : personne ne se bat pendant ce temps
+            for (var ak9 = 0; ak9 < groupe9.length; ak9++){
+              var gf9 = groupe9[ak9];
+              gf9.momentT = 2.9;
+              gf9.momentKind = 'ag';
+              gf9.agParle = (gf9 === af9);        // un seul parle : c est le tour de parole
+              gf9.agT = 0.5;
+              gf9.vx = 0;
+              gf9.dir = af9.x >= gf9.x ? 1 : -1;  // tous tournes vers l orateur
+            }
+            addFloater(af9.x, af9.screenY() - 62, 'AG SPONTANEE !', '#ffd166', 1.9);
+            beep(523, 0.09, 'triangle', 0.05);
+            beep(659, 0.14, 'triangle', 0.05, 0, 0.1);
+          } else {
+            // ILS CHANTENT : et le cortege se galvanise
+            var chant9 = CHANTS[irnd(0, CHANTS.length - 1)];
+            for (var ck9 = 0; ck9 < groupe9.length; ck9++){
+              var cf9b = groupe9[ck9];
+              cf9b.buffT = 4.5;                   // +25% de vitesse, +35% de frappe
+              cf9b.chanteT = 4.5;
+              addParticles(cf9b.x, cf9b.z, 12, 8, '#ff8a5c', 50);
+            }
+            addFloater(af9.x, af9.screenY() - 62, chant9, '#ff8a5c', 2.2);
+            beep(196, 0.1, 'square', 0.05);
+            beep(262, 0.1, 'square', 0.05, 0, 0.12);
+            beep(196, 0.16, 'square', 0.05, 0, 0.24);
+          }
+          break;
+        }
+      }
+    }
+  }
   // LE CORDON PACIFISTE : un mur de gens assis, et il tient
   if (game.state === 'play'){
     var murX8 = 1e9;
@@ -5024,7 +5224,7 @@ function update(dt){
     }
   } else {
     var alive = 0;
-    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed' && game.fighters[i].state !== 'flee' && game.fighters[i].kind !== 'journaliste' && game.fighters[i].kind !== 'clochard' && game.fighters[i].kind !== 'pacifiste') alive++;
+    for (var i=0;i<game.fighters.length;i++) if (!game.fighters[i].isPlayer && !game.fighters[i].dead && game.fighters[i].state !== 'cuffed' && game.fighters[i].state !== 'flee' && game.fighters[i].kind !== 'journaliste' && game.fighters[i].kind !== 'clochard' && game.fighters[i].kind !== 'pacifiste' && game.fighters[i].kind !== 'medic') alive++;
     if (alive===0 && game.waveBannerT<=0 && !game.goMode && game.fadeT<=0 && !(game.victoryT>0) && game.state==='play') openLevelup(game.wave+1);
   }
 
@@ -5952,6 +6152,51 @@ function drawBodyCasseur(g, f, o){
 }
 
 /* --- etudiant revolte : bonnet rouge, veste verte --- */
+function drawBodyMedic(g, f, o){
+  var tenue = '#dfe3e8', sombre = '#2f3540', peau = '#e0bd9a';
+  var soigne8 = f.soinT > 0;
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.4, 3.9, sombre);
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.4, 3.9, '#3a4250');
+  bRR(g, -2.2 + o.legB - 3, 0, 6.2, 3.4, 1.4, '#15171d');
+  bRR(g,  2.2 + o.legF - 3, 0, 6.2, 3.4, 1.4, '#15171d');
+  drawArmS(g, f, o.armB, -1, tenue);
+  // le gros sac a dos de secours
+  g.fillStyle = '#3d4652';
+  rrPath(g, -8.4, -23, 4.6, 11.6, 1.6); g.fill();
+  g.fillStyle = '#c0392b';
+  g.fillRect(-7.4, -19.6, 2.6, 0.9);
+  g.fillRect(-6.4, -20.6, 0.9, 2.9);            // la croix sur le sac
+  // la veste claire
+  g.fillStyle = tenue;
+  rrPath(g, -5.2, -24.4, 10.4, 13, 2.8); g.fill();
+  // le brassard a croix rouge
+  g.fillStyle = '#f2ece0';
+  g.fillRect(3.4, -21.6, 3.2, 3.4);
+  g.fillStyle = '#c0392b';
+  g.fillRect(4.2, -21, 1.6, 2.2);
+  g.fillRect(3.6, -20.4, 2.8, 1);
+  // le foulard
+  g.fillStyle = '#4a5568';
+  g.fillRect(-3.4, -26, 6.8, 2.2);
+  // tete + casque blanc
+  bEll(g, -1.2, 27.2, 2.2, 2.6, peau);
+  drawFace(g, 0.7, 26.8, 0.92, { skin: peau, angry: 0 });
+  bEll(g, 0.2, 30.2, 3.2, 2.4, '#f2ece0');
+  g.fillStyle = '#c0392b';
+  g.fillRect(-0.4, -31.6, 1.2, 2.6);
+  g.fillRect(-1.1, -30.9, 2.6, 1.2);            // la croix sur le casque
+  drawArmS(g, f, o.armF, 1, tenue);
+  // le flacon de serum, brandi quand il soigne
+  if (soigne8){
+    g.fillStyle = '#cfe8ff';
+    rrPath(g, 5.4, -20.4, 2.2, 4.4, 0.8); g.fill();
+    g.fillStyle = '#7ec8ff';
+    g.fillRect(5.4, -17.6, 2.2, 1.6);
+    g.strokeStyle = 'rgba(126,227,139,0.7)'; g.lineWidth = 0.7;
+    g.beginPath(); g.moveTo(7.6, -18.4); g.quadraticCurveTo(9.6, -17, 9.2, -14.6); g.stroke();
+  }
+}
+
 function drawBodyPacifiste(g, f, o){
   var chemise = '#eae4d6', pant = '#7f7660', peau = '#e8c9a8';
   var bal8 = Math.sin(f.animT * 2.6) * 1.1;          // il se balance en chantant
@@ -7346,6 +7591,7 @@ function drawBody(g, f){
   else if (f.kind==='punk') drawBodyPunk(g, f, o);
   else if (f.kind==='clochard') drawBodyClochard(g, f, o);
   else if (f.kind==='pacifiste') drawBodyPacifiste(g, f, o);
+  else if (f.kind==='medic') drawBodyMedic(g, f, o);
   else if (f.kind==='gilet') drawBodyGilet(g, f, o);
   else if (f.kind==='chien') drawBodyChien(g, f, o);
   else if (f.kind==='rasta') drawBodyRasta(g, f, o);
@@ -10529,6 +10775,11 @@ window.__crs = {
   LOIS: LOIS,
   MANIF_BASE: MANIF_BASE,
   INSULTES: INSULTES,
+  AG_PHRASES: AG_PHRASES,
+  FIN_AG: FIN_AG,
+  SCISSIONS: SCISSIONS,
+  CLOPES: CLOPES,
+  CHANTS: CHANTS,
   PLEURS: PLEURS,
   PANIQUES: PANIQUES,
   SHOP_MARCHAND: SHOP_MARCHAND,
