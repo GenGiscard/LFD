@@ -447,7 +447,9 @@ function noiseBurst(dur, freq, vol, type, delay){
   }catch(e){}
 }
 var SFX = {
-  hit:    function(){ beep(180, 0.09, 'square', 0.09, -120); },
+  hit:    function(){ beep(150, 0.10, 'square', 0.11, -110);
+                      noiseBurst(0.05, 900, 0.055, 'bandpass');
+                      noiseBurst(0.035, 3400, 0.03, 'highpass'); },
   swing:  function(){ beep(600, 0.05, 'triangle', 0.04, -400); },
   block:  function(){ beep(320, 0.07, 'sawtooth', 0.05, -80); },
   ko:     function(){ beep(220, 0.30, 'square', 0.09, -180); },
@@ -1021,7 +1023,27 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (this.dead) return false;
   var otg = (this.state==='down' || this.state==='cuffed') && arguments.length > 5 && arguments[5];
   if (this.state==='down' || this.state==='cuffed'){ if (!otg) return false; }
-  else if (this.state==='fall' || this.state==='getup') return false;
+  else if (this.state==='fall' || this.state==='getup'){
+    // LA JONGLE : lance en l air, il reste frappable (trois coups, puis il retombe)
+    if (this.state==='fall' && !this.isPlayer && !this.dead && this.y > 2 &&
+        srcTag === 'player' && dmg > 0 && (this.airHits || 0) < 3){
+      this.airHits = (this.airHits || 0) + 1;
+      this.hp -= dmg;
+      this.flashT = 0.16;
+      this.vy = 128;                              // le coup le maintient en l air
+      this.vx = dirFrom * (46 + kb * 0.45);
+      game.hitstop = Math.max(game.hitstop, 0.075);
+      game.shake = Math.max(game.shake, 2);
+      game.combo++; game.comboT = game.comboWin || 1.6;
+      if (game.combo > game.bestCombo) game.bestCombo = game.combo;
+      addFloater(this.x, this.screenY()-44, '-'+dmg, '#ffd166');
+      impactFX(this.x - dirFrom*3, this.z, this.y + 14, false, '#ffd166');
+      SFX.hit();
+      if (this.hp <= 0){ this.hp = 0; this.die(dirFrom); }
+      return true;
+    }
+    return false;
+  }
   if (this.state==='dodge') return false; // esquive : invulnerable
   if (this.isPlayer && this.invulnT > 0) return false; // releve : invulnerable
   var blocked = false;
@@ -1153,8 +1175,11 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     game.combo = 0; game.comboT = 0;
   }
   this.hp -= dmg;
-  this.flashT = 0.12;
-  game.hitstop = Math.max(game.hitstop, knockdown ? 0.07 : 0.045);
+  this.flashT = 0.16;
+  game.hitstop = Math.max(game.hitstop, knockdown ? 0.105 : 0.062);
+  if (srcTag === 'player' && dmg > 0 && !blocked){
+    game.shake = Math.max(game.shake, knockdown ? 3.4 : 1.5);   // chaque coup secoue l ecran
+  }
   addParticles(this.x + dirFrom*4, this.z, 18, blocked?3:6, blocked ? '#9fb2d8' : '#e8e0c8', 60);
   addFloater(this.x, this.screenY()-40, '-'+dmg, blocked ? '#9fb2d8' : (this.isPlayer ? '#ff8a7a' : '#fff'));
 
@@ -1167,6 +1192,19 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
       addFloater(this.x, this.screenY()-64, jal, '#ffd166');
       game.particles.push({ star:true, x:this.x, z:this.z, y:34, t:0.22, r:8, col:'#ffd166' });
       SFX.shout();
+      if (game.combo === 10){
+        spawnItem('canette', clamp(this.x + rnd(-14, 14), 20, MAP_W - 20), clamp(this.z, Z_MIN, Z_MAX), 60);
+        addFloater(this.x, this.screenY()-76, 'LA RUE OFFRE UNE CANETTE', '#8fd3f4', 1.4);
+      } else if (game.combo === 20){
+        spawnItem('trousse', clamp(this.x + rnd(-14, 14), 20, MAP_W - 20), clamp(this.z, Z_MIN, Z_MAX), 60);
+        addFloater(this.x, this.screenY()-76, 'LA RUE OFFRE UNE TROUSSE', '#7ce38b', 1.4);
+      } else {
+        var cbp9 = [game.player, game.player2];
+        for (var cb9 = 0; cb9 < 2; cb9++){
+          if (cbp9[cb9] && !cbp9[cb9].dead) cbp9[cb9].fury = 100;
+        }
+        addFloater(this.x, this.screenY()-76, 'ADRENALINE MAX !', '#ff8a5c', 1.6);
+      }
     }
   }
 
@@ -1204,7 +1242,9 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
       this.stateT = Math.min(this.stateT, 0.3);   // reste plaque un peu plus
     } else if (knockdown){
       this.setState('fall');
-      this.vy = 150; this.y = Math.max(this.y, 1);
+      this.airHits = 0;
+      this.vy = srcTag === 'player' ? 190 : 150;   // le CRS lance plus haut : place a la jongle
+      this.y = Math.max(this.y, 1);
       this.vx = dirFrom * (60 + kb);
       this.dropWeapon();
     } else {
@@ -1271,7 +1311,7 @@ Fighter.prototype.die = function(dirFrom){
         }
       }
     }
-    var pts = Math.round((100 + game.wave*10 + (this.boss ? 400 : 0)) * mult * (game.lois.ruissellement ? 1.25 : 1));
+    var pts = Math.round((100 + game.wave*10 + (this.boss ? 400 : 0)) * mult * (game.lois.ruissellement ? 1.25 : 1) * (game.evt === 'bfm' ? 1.3 : 1));
     game.score += pts;
     game.kills = (game.kills || 0) + 1;
     addFloater(this.x, this.screenY()-46, '+' + pts + (mult > 1.24 ? ' x' + mult.toFixed(1) : ''), '#ffd166');
@@ -1476,6 +1516,14 @@ var PAL_K9  = { suit:'#c68a53', suitD:'#a86f3e', skin:'#c68a53', boot:'#1b1e26',
 var PAL_CRO = { suit:'#8b96ad', suitD:'#6f7a8c', skin:'#d9a066', boot:'#5a6478',
                 pants:'#8b96ad', pantsD:'#6f7a8c', tabard:'#e8e4d8', cross:'#a52f22' };
 
+var WAVE_EVENTS = [
+  { id:'apero',     nom:'APERO SAUVAGE',        txt:'Des bouteilles tombent du ciel toute la manche' },
+  { id:'bfm',       nom:'BFM EN DIRECT',        txt:'La presse est la : tous les points x1.3' },
+  { id:'renforts',  nom:'RENFORTS DE PROVINCE', txt:'Plus nombreux, mais fatigues du car (-10% PV)' },
+  { id:'canicule',  nom:'CANICULE',             txt:'38 degres a l ombre : le cortege ralentit' },
+  { id:'marche',    nom:'MARCHE NOIR',          txt:'Les objets pleuvent deux fois plus' },
+  { id:'barricades',nom:'NUIT DES BARRICADES',  txt:'La rue s est organisee pendant la nuit' }
+];
 var BESTIAIRE_ORDER = [
   'casseur','costaud','etudiant','antifa','anarchiste','ecolo','artiste','ouvrier','tambour','leader',
   'punk','chien','junkie','danseuse','rasta','gilet','sdf','theoricien','doyen',
@@ -1560,11 +1608,11 @@ var CHARS = [
 ];
 
 var ATTACKS = {
-  punch1:  { dur:0.30, a0:0.08, a1:0.18, dmg:8,  range:16, kb:40,  kd:false, mv:0  },
-  punch2:  { dur:0.30, a0:0.08, a1:0.18, dmg:9,  range:16, kb:50,  kd:false, mv:0  },
+  punch1:  { dur:0.26, a0:0.07, a1:0.16, dmg:8,  range:16, kb:40,  kd:false, mv:0  },
+  punch2:  { dur:0.26, a0:0.07, a1:0.16, dmg:9,  range:16, kb:50,  kd:false, mv:0  },
   punch3:  { dur:0.40, a0:0.12, a1:0.24, dmg:14, range:18, kb:90,  kd:true,  mv:20 },
-  baton1:  { dur:0.32, a0:0.09, a1:0.20, dmg:13, range:24, kb:55,  kd:false, mv:0  },
-  baton2:  { dur:0.32, a0:0.09, a1:0.20, dmg:14, range:24, kb:60,  kd:false, mv:0  },
+  baton1:  { dur:0.28, a0:0.08, a1:0.18, dmg:13, range:24, kb:55,  kd:false, mv:0  },
+  baton2:  { dur:0.28, a0:0.08, a1:0.18, dmg:14, range:24, kb:60,  kd:false, mv:0  },
   baton3:  { dur:0.44, a0:0.13, a1:0.26, dmg:20, range:26, kb:100, kd:true,  mv:24 },
   tackle:  { dur:0.42, a0:0.05, a1:0.30, dmg:16, range:16, kb:100, kd:true,  mv:120},
   charge:  { dur:0.55, a0:0.06, a1:0.42, dmg:22, range:16, kb:130, kd:true,  mv:170},
@@ -1597,8 +1645,8 @@ var ATTACKS = {
   coude2:  { dur:0.24, a0:0.06, a1:0.14, dmg:9,  range:13, kb:40,  kd:false, mv:14 },
   genou3:  { dur:0.30, a0:0.10, a1:0.18, dmg:12, range:13, kb:55,  kd:false, mv:16 },
   pied4:   { dur:0.42, a0:0.14, a1:0.26, dmg:16, range:19, kb:150, kd:true,  mv:10 },
-  gifle1:  { dur:0.26, a0:0.07, a1:0.16, dmg:7,  range:15, kb:45,  kd:false, mv:6  },
-  revers2: { dur:0.26, a0:0.07, a1:0.16, dmg:9,  range:15, kb:60,  kd:false, mv:10 },
+  gifle1:  { dur:0.23, a0:0.06, a1:0.14, dmg:7,  range:15, kb:45,  kd:false, mv:6  },
+  revers2: { dur:0.23, a0:0.06, a1:0.14, dmg:9,  range:15, kb:60,  kd:false, mv:10 },
   talon4:  { dur:0.38, a0:0.12, a1:0.24, dmg:14, range:17, kb:140, kd:true,  mv:8  },
   pommeau3:{ dur:0.30, a0:0.08, a1:0.18, dmg:10, range:16, kb:30,  kd:false, mv:12 }
 };
@@ -1797,6 +1845,12 @@ Fighter.prototype.update = function(dt){
 
     case 'attack': {
       var sp = this.attackSpec();
+      if (this.isPlayer && this.keys && this.keys.DEF && this.stateT > sp.a1 + 0.02 &&
+          this.attackKind !== 'charge' && this.attackKind !== 'tackle' && this.attackKind !== 'pounce'){
+        this.comboStep = 0; this.comboQueued = false;
+        this.setState(this.charId === 'k9' ? 'idle' : 'guard');   // ANNULATION : defense immediate
+        break;
+      }
       // avance liee au coup (tacle, charge...)
       if (sp.mv && this.stateT >= sp.a0 && this.stateT <= sp.a1){
         this.x += this.dir * sp.mv * dt * 3;
@@ -2094,7 +2148,7 @@ Fighter.prototype.update = function(dt){
           this.setState('idle');
           break;
         }
-        var cpts = Math.round((120 + game.wave*12) * (1 + Math.min(2, game.combo*0.05)) * (game.lois.ruissellement ? 1.25 : 1));
+        var cpts = Math.round((120 + game.wave*12) * (1 + Math.min(2, game.combo*0.05)) * (game.lois.ruissellement ? 1.25 : 1) * (game.evt === 'bfm' ? 1.3 : 1));
         game.score += cpts; game.kills = (game.kills||0) + 1;
         game.cuffs = (game.cuffs||0) + 1;
         game.combo++; game.comboT = game.comboWin || 1.6;
@@ -2156,6 +2210,7 @@ Fighter.prototype.update = function(dt){
       this.y += this.vy * dt;
       if (this.y <= 0){
         this.y = 0; this.vx = 0;
+        this.airHits = 0;                           // au sol : la jongle est soldee
         addParticles(this.x, this.z, 2, 6, '#6b7285', 55);
         game.particles.push({ wave:true, x:this.x, z:this.z, y:2, r:3, t:0.26, col:'rgba(154,143,125,' });
         game.shake = Math.max(game.shake, 2);
@@ -2226,13 +2281,14 @@ Fighter.prototype.tryHit = function(sp){
     var tazeCuff1 = this.isPlayer && t.state === 'cuffed' &&
                     this.weapon && ITEM_ELEC[this.weapon.type];
     if (t.state==='down' || t.state==='fall' || t.state==='getup' || t.state==='cuffed'){
-      if (!(this.attackKind==='stomp' && (t.state==='down' || t.state==='cuffed')) && !tazeCuff1) continue;
+      var jong4 = t.state==='fall' && t.y > 2 && this.isPlayer && !t.dead;
+      if (!(this.attackKind==='stomp' && (t.state==='down' || t.state==='cuffed')) && !tazeCuff1 && !jong4) continue;
     }
     var dx = (t.x - this.x) * this.dir;
     var rng9 = sp.range * (this.isPlayer && game.shop.allonge ? 1.2 : 1);
     if (dx < 2 || dx > rng9 + 8) continue;
     if (Math.abs(t.z - this.z) > 13) continue;
-    if (Math.abs(t.y - this.y) > 26) continue;
+    if (Math.abs(t.y - this.y) > (t.state==='fall' ? 42 : 26)) continue;
     this.hitDone = true;
     var dmg = sp.dmg;
     if (this.buffT > 0) dmg = Math.round(dmg*1.35);
@@ -4070,6 +4126,33 @@ function startWave(n){
   }
   game.toSpawn = 2 + n + Math.floor(n/2);
   game.event = (n >= 3 && Math.random() < 0.35) ? (Math.random() < 0.5 ? 'pluie' : 'helico') : null;
+  game.evt = null;
+  if (n >= 2 && Math.random() < 0.35){
+    var we9 = WAVE_EVENTS[irnd(0, WAVE_EVENTS.length - 1)];
+    game.evt = we9.id;
+    if (we9.id === 'renforts') game.toSpawn = Math.round(game.toSpawn * 1.45);
+    if (we9.id === 'apero'){
+      for (var ap9 = 0; ap9 < 5; ap9++){
+        spawnItem('bouteille', clamp(rnd(80, MAP_W - 80), 20, MAP_W - 20), rnd(Z_MIN + 6, Z_MAX - 6), 200);
+      }
+      spawnItem('canette', clamp(rnd(120, MAP_W - 120), 20, MAP_W - 20), rnd(Z_MIN + 6, Z_MAX - 6), 220);
+      spawnItem('canette', clamp(rnd(120, MAP_W - 120), 20, MAP_W - 20), rnd(Z_MIN + 6, Z_MAX - 6), 240);
+    }
+    if (we9.id === 'bfm' && !game.lois.commission){
+      var jb9 = spawnEnemy('journaliste');
+      jb9.pressT = 26;
+    }
+    if (we9.id === 'barricades'){
+      createBarrier(clamp(game.camX + 190, 40, MAP_W - 40), 24);
+      createBarrier(clamp(game.camX + 320, 40, MAP_W - 40), 58);
+      createBarrier(clamp(game.camX + 560, 40, MAP_W - 40), 40);
+    }
+    if (we9.id === 'marche') game.dropT = 1.5;
+    var px9 = game.player ? game.player.x : W / 2;
+    addFloater(px9, 70, 'EVENEMENT : ' + we9.nom, '#ff8ad8', 2.6);
+    addFloater(px9, 84, we9.txt, '#c9d2e2', 2.6);
+    beep(392, 0.1, 'triangle', 0.06); beep(523, 0.16, 'triangle', 0.06, 0, 0.12);
+  }
   if (game.zone === 0 && n === ZONES[0].wEnd && !game.horde){
     for (var pc8 = 0; pc8 < 5; pc8++){          // LE CORDON en travers de la sortie
       var pf8 = spawnEnemy('pacifiste');
@@ -4196,7 +4279,7 @@ function spawnEnemy(kind){
     seed: seed,
     x: x, z: rnd(Z_MIN+6, Z_MAX-6),
     dir: side<0?1:-1,
-    hp: Math.round((et.hp + game.wave*6) * (game.lois.austerite && !et.boss ? 0.8 : 1) * DIFFS[settings.diff === undefined ? 1 : settings.diff].ehp),
+    hp: Math.round((et.hp + game.wave*6) * (game.lois.austerite && !et.boss ? 0.8 : 1) * DIFFS[settings.diff === undefined ? 1 : settings.diff].ehp * (game.evt === 'renforts' ? 0.9 : 1)),
     speed: et.spd + (kind==='casseur' ? Math.min(18, game.wave*2) : 0)
   });
   if (et.big) f.big = true;
@@ -4287,6 +4370,7 @@ function spawnEnemy(kind){
   if (!f.isPlayer && DIFFS[settings.diff === undefined ? 1 : settings.diff].espd !== 1){
     f.speed = Math.round(f.speed * DIFFS[settings.diff === undefined ? 1 : settings.diff].espd);
   }
+  if (!f.isPlayer && game.evt === 'canicule') f.speed = Math.round(f.speed * 0.85);
   f.sloganT = rnd(2, 6);
   f.shoutCd = 1.2;
   game.fighters.push(f);
@@ -4311,6 +4395,7 @@ function resetGame(){
   game.agCd = rnd(12, 20);
   game.vues = 0; game.applaudis = 0;
   game.cuffs = 0; game.evacues = 0; game.agTotal = 0; game.chantsTotal = 0; game.pieces = 0;
+  game.evt = null;
   game.igpnFaite = false;
   game.slowmoT = 0;
   game.barriers = []; game.graffitis = [];
@@ -5548,7 +5633,7 @@ function update(dt){
 
   // drops du ciel
   game.dropT -= dt;
-  if (game.dropT <= 0){ randomDrop(); game.dropT = rnd(7, 11); }
+  if (game.dropT <= 0){ randomDrop(); game.dropT = game.evt === 'marche' ? rnd(3, 5) : rnd(7, 11); }
 
   // ambiance : braises au-dessus des feux, papiers au vent
   game.ambientT = (game.ambientT || 0) - dt;
@@ -11337,6 +11422,7 @@ window.__crs = {
   CHANTS: CHANTS,
   AMBIANTS: AMBIANTS,
   DIFFS: DIFFS,
+  WAVE_EVENTS: WAVE_EVENTS,
   settings: settings,
   BESTIAIRE_ORDER: BESTIAIRE_ORDER,
   BESTIAIRE_DESC: BESTIAIRE_DESC,
