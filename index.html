@@ -952,8 +952,8 @@ function rnd(a,b){ return a + Math.random()*(b-a); }
 function irnd(a,b){ return Math.floor(rnd(a,b+1)); }
 function lerp(a,b,t){ return a+(b-a)*t; }
 
-function addFloater(x, sy, txt, col, vie){
-  game.floaters.push({ x:x, sy:sy, txt:txt, col:col||'#fff', t: vie || 0.9 });
+function addFloater(x, sy, txt, col, vie, z){
+  game.floaters.push({ x:x, z:z, sy:sy, txt:txt, col:col||'#fff', t: vie || 0.9 });
 }
 function impactFX(x, z, y, big, col){
   game.particles.push({ star:true, x:x, z:z, y:y, t: big ? 0.2 : 0.13, r: big ? 7.5 : 5, col: col || '#ffd166' });
@@ -1012,7 +1012,21 @@ Fighter.prototype.setState = function(s){
   this.state = s; this.stateT = 0;
 };
 
-Fighter.prototype.footSY = function(){ return GROUND_SY + this.z; };
+Fighter.prototype.footSY = function(){ return groundY(this.z); };
+function depthScale(z){
+  // 2.5D : petit au fond de la rue, grand au premier plan
+  return 0.80 + 0.32 * (clamp(z, Z_MIN, Z_MAX) / Z_MAX);
+}
+var XF_REF = 1.12;                                  // le premier plan est la reference laterale
+function projX(x, z){
+  // perspective : les rangees du fond convergent vers le point de fuite (centre ecran)
+  return W/2 + (x - game.camX - W/2) * (depthScale(z) / XF_REF);
+}
+function groundY(z){
+  // les rangees se compressent a l horizon (integrale de l echelle, normalisee)
+  var t = clamp(z, Z_MIN, Z_MAX);
+  return GROUND_SY + (0.80*t + 0.16*t*t/Z_MAX) / 0.96;
+}
 Fighter.prototype.screenY = function(){ return this.footSY() - this.y; };
 
 Fighter.prototype.canAct = function(){
@@ -1036,7 +1050,7 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
       game.shake = Math.max(game.shake, 2);
       game.combo++; game.comboT = game.comboWin || 1.6;
       if (game.combo > game.bestCombo) game.bestCombo = game.combo;
-      addFloater(this.x, this.screenY()-44, '-'+dmg, '#ffd166');
+      addFloater(this.x, this.screenY()-44, '-'+dmg, '#ffd166', 0.9, this.z);
       impactFX(this.x - dirFrom*3, this.z, this.y + 14, false, '#ffd166');
       SFX.hit();
       if (this.hp <= 0){ this.hp = 0; this.die(dirFrom); }
@@ -1091,42 +1105,42 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (this.kind === 'livreur' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 2);
-    addFloater(this.x, this.screenY() - 62, 'LA COMMANDE !! [RIPOU +2]', '#ff6b5e', 1.5);
+    addFloater(this.x, this.screenY() - 62, 'LA COMMANDE !! [RIPOU +2]', '#ff6b5e', 1.5, this.z);
     addParticles(this.x, this.z, 14, 14, '#c97a2e', 60);      // le repas se repand
   }
   if (this.kind === 'badaud' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 2);
     game.vues = (game.vues || 0) + 250000;
-    addFloater(this.x, this.screenY() - 62, 'C EST EN LIGNE ! [RIPOU +2]', '#ff6b5e', 1.6);
+    addFloater(this.x, this.screenY() - 62, 'C EST EN LIGNE ! [RIPOU +2]', '#ff6b5e', 1.6, this.z);
   }
   if (this.kind === 'retraite' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 1);
-    addFloater(this.x, this.screenY() - 62, 'J AI 82 ANS !! [RIPOU +1]', '#ff6b5e', 1.4);
+    addFloater(this.x, this.screenY() - 62, 'J AI 82 ANS !! [RIPOU +1]', '#ff6b5e', 1.4, this.z);
   }
   if (this.kind === 'bourgeoise' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 3);
-    addFloater(this.x, this.screenY() - 30, 'MAIS... JE VOUS SOUTENAIS ! [RIPOU +3]', '#ff6b5e', 2);
+    addFloater(this.x, this.screenY() - 30, 'MAIS... JE VOUS SOUTENAIS ! [RIPOU +3]', '#ff6b5e', 2, this.z);
   }
   if (this.kind === 'medic' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 1);
-    addFloater(this.x, this.screenY() - 62, 'T AS PAS LE DROIT, JE SUIS MEDIC ! [RIPOU +1]', '#ff6b5e', 1.4);
+    addFloater(this.x, this.screenY() - 62, 'T AS PAS LE DROIT, JE SUIS MEDIC ! [RIPOU +1]', '#ff6b5e', 1.4, this.z);
     this.soinT = 0; this.patient = null;
   }
   if (this.kind === 'pacifiste' && dmg > 0 && !this.isPlayer && srcTag === 'player' && !this.ripouDonne){
     this.ripouDonne = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 1);
-    addFloater(this.x, this.screenY() - 62, 'MAIS ON EST PACIFIQUES !! [RIPOU +1]', '#ff6b5e', 1.4);
+    addFloater(this.x, this.screenY() - 62, 'MAIS ON EST PACIFIQUES !! [RIPOU +1]', '#ff6b5e', 1.4, this.z);
   }
   if (this.kind === 'clochard' && dmg > 0 && !this.isPlayer){
     spawnItem('piece', clamp(this.x + rnd(-10, 10), 16, MAP_W - 16), clamp(this.z + rnd(-4, 6), Z_MIN, Z_MAX), rnd(18, 30));
     if (!this.ripouDonne && srcTag === 'player'){
       this.ripouDonne = true;
       game.ripou = Math.min(10, (game.ripou || 0) + 1);
-      addFloater(this.x, this.screenY() - 62, 'SERIEUX ?... [RIPOU +1]', '#ff6b5e', 1.3);
+      addFloater(this.x, this.screenY() - 62, 'SERIEUX ?... [RIPOU +1]', '#ff6b5e', 1.3, this.z);
     }
   }
   if (this.kind === 'drone' && dmg > 0) SFX.clang(0.8);
@@ -1150,7 +1164,7 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
       kb *= 0.1;
       knockdown = false;
       if (!(this.postFlashT > 0)){
-        addFloater(this.x, this.screenY() - 56, 'INDEBOULONNABLE', '#e8b04c');
+        addFloater(this.x, this.screenY() - 56, 'INDEBOULONNABLE', '#e8b04c', 0.9, this.z);
         this.postFlashT = 0.9;
         SFX.block();
       }
@@ -1167,12 +1181,17 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
   if (this.isPlayer && this.helmetHits > 0 && !blocked && dmg > 0){
     dmg = Math.max(1, Math.ceil(dmg / 2));
     this.helmetHits--;
-    addFloater(this.x, this.screenY()-56, this.helmetHits ? 'CASQUE !' : 'CASQUE CASSE !', '#f2c53d');
+    addFloater(this.x, this.screenY()-56, this.helmetHits ? 'CASQUE !' : 'CASQUE CASSE !', '#f2c53d', 0.9, this.z);
     if (!this.helmetHits) addParticles(this.x, this.z, 30, 6, '#f2c53d', 60);
   }
   if (this.isPlayer && !blocked && dmg > 0 && game.combo > 0){
-    if (game.combo >= 5) addFloater(this.x, this.screenY()-64, 'COMBO BRISE', '#8b96ad');
+    if (game.combo >= 5) addFloater(this.x, this.screenY()-64, 'COMBO BRISE', '#8b96ad', 0.9, this.z);
     game.combo = 0; game.comboT = 0;
+  }
+  if (this.isPlayer && this.trottT > 0 && dmg > 0 && !blocked){
+    this.trottT = 0;                             // le premier pave t ejecte
+    addFloater(this.x, this.screenY()-60, 'EJECTE DE LA TROTTINETTE !', '#ff9d8a', 1.4, this.z);
+    addParticles(this.x, this.z, 6, 10, '#8fd3f4', 85);
   }
   this.hp -= dmg;
   this.flashT = 0.16;
@@ -1181,7 +1200,7 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     game.shake = Math.max(game.shake, knockdown ? 3.4 : 1.5);   // chaque coup secoue l ecran
   }
   addParticles(this.x + dirFrom*4, this.z, 18, blocked?3:6, blocked ? '#9fb2d8' : '#e8e0c8', 60);
-  addFloater(this.x, this.screenY()-40, '-'+dmg, blocked ? '#9fb2d8' : (this.isPlayer ? '#ff8a7a' : '#fff'));
+  addFloater(this.x, this.screenY()-40, '-'+dmg, blocked ? '#9fb2d8' : (this.isPlayer ? '#ff8a7a' : '#fff'), 0.9, this.z);
 
   if (this.isPlayer){ /* le joueur encaisse */ }
   else if (srcTag === 'player'){
@@ -1189,21 +1208,21 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     if (game.combo > game.bestCombo) game.bestCombo = game.combo;
     if (game.combo === 10 || game.combo === 20 || game.combo === 30){
       var jal = game.combo === 10 ? 'SUPERBE !' : (game.combo === 20 ? 'INARRETABLE !' : 'LEGENDAIRE !');
-      addFloater(this.x, this.screenY()-64, jal, '#ffd166');
+      addFloater(this.x, this.screenY()-64, jal, '#ffd166', 0.9, this.z);
       game.particles.push({ star:true, x:this.x, z:this.z, y:34, t:0.22, r:8, col:'#ffd166' });
       SFX.shout();
       if (game.combo === 10){
         spawnItem('canette', clamp(this.x + rnd(-14, 14), 20, MAP_W - 20), clamp(this.z, Z_MIN, Z_MAX), 60);
-        addFloater(this.x, this.screenY()-76, 'LA RUE OFFRE UNE CANETTE', '#8fd3f4', 1.4);
+        addFloater(this.x, this.screenY()-76, 'LA RUE OFFRE UNE CANETTE', '#8fd3f4', 1.4, this.z);
       } else if (game.combo === 20){
         spawnItem('trousse', clamp(this.x + rnd(-14, 14), 20, MAP_W - 20), clamp(this.z, Z_MIN, Z_MAX), 60);
-        addFloater(this.x, this.screenY()-76, 'LA RUE OFFRE UNE TROUSSE', '#7ce38b', 1.4);
+        addFloater(this.x, this.screenY()-76, 'LA RUE OFFRE UNE TROUSSE', '#7ce38b', 1.4, this.z);
       } else {
         var cbp9 = [game.player, game.player2];
         for (var cb9 = 0; cb9 < 2; cb9++){
           if (cbp9[cb9] && !cbp9[cb9].dead) cbp9[cb9].fury = 100;
         }
-        addFloater(this.x, this.screenY()-76, 'ADRENALINE MAX !', '#ff8a5c', 1.6);
+        addFloater(this.x, this.screenY()-76, 'ADRENALINE MAX !', '#ff8a5c', 1.6, this.z);
       }
     }
   }
@@ -1222,8 +1241,8 @@ Fighter.prototype.hurt = function(dmg, kb, dirFrom, knockdown, srcTag){
     this.pressHit = true;
     game.ripou = Math.min(10, (game.ripou || 0) + 2);
     game.score = Math.max(0, game.score - 150);
-    addFloater(this.x, this.screenY()-58, 'LA PRESSE ! RIPOU +2', '#ff6b5e');
-    addFloater(this.x, this.screenY()-46, 'IMAGE DESASTREUSE \u2212150', '#ff9b8e');
+    addFloater(this.x, this.screenY()-58, 'LA PRESSE ! RIPOU +2', '#ff6b5e', 0.9, this.z);
+    addFloater(this.x, this.screenY()-46, 'IMAGE DESASTREUSE \u2212150', '#ff9b8e', 0.9, this.z);
     this.setState('flee');
     return true;   // il fuit : pas de hitstun qui ecraserait la fuite
   }
@@ -1267,7 +1286,7 @@ Fighter.prototype.die = function(dirFrom){
       if (cvg2.kind === 'chien' && cvg2.maitre === this && !cvg2.dead){
         cvg2.speed = Math.round(cvg2.speed * 1.3);
         cvg2.venge = true;
-        addFloater(cvg2.x, cvg2.screenY() - 44, 'GRRRR !!', '#ff6b5e', 1.2);
+        addFloater(cvg2.x, cvg2.screenY() - 44, 'GRRRR !!', '#ff6b5e', 1.2, cvg2.z);
       }
     }
   }
@@ -1281,7 +1300,7 @@ Fighter.prototype.die = function(dirFrom){
   }
   SFX.ko();
   if (this.kind === 'drone'){
-    addFloater(this.x, this.screenY() - 54, 'DRONE ABATTU !', '#7ec8ff');
+    addFloater(this.x, this.screenY() - 54, 'DRONE ABATTU !', '#7ec8ff', 0.9, this.z);
     addParticles(this.x, this.z, 16, this.y, '#ffd166', 90);
     noiseBurst(0.16, 900, 0.07, 'bandpass');
   }
@@ -1306,7 +1325,7 @@ Fighter.prototype.die = function(dirFrom){
         if (jf.kind === 'journaliste' && !jf.dead && jf.state !== 'flee' &&
             Math.abs(jf.x - this.x) < 48 && Math.abs(jf.z - this.z) < 30){
           mult += 0.25;
-          addFloater(this.x, this.screenY()-64, 'EN DIRECT +25%', '#7ec8ff');
+          addFloater(this.x, this.screenY()-64, 'EN DIRECT +25%', '#7ec8ff', 0.9, this.z);
           break;
         }
       }
@@ -1314,26 +1333,26 @@ Fighter.prototype.die = function(dirFrom){
     var pts = Math.round((100 + game.wave*10 + (this.boss ? 400 : 0)) * mult * (game.lois.ruissellement ? 1.25 : 1) * (game.evt === 'bfm' ? 1.3 : 1));
     game.score += pts;
     game.kills = (game.kills || 0) + 1;
-    addFloater(this.x, this.screenY()-46, '+' + pts + (mult > 1.24 ? ' x' + mult.toFixed(1) : ''), '#ffd166');
-    if (this.tambour) addFloater(this.x, this.screenY()-60, 'LE TAMBOUR SE TAIT...', '#cfd4e0');
+    addFloater(this.x, this.screenY()-46, '+' + pts + (mult > 1.24 ? ' x' + mult.toFixed(1) : ''), '#ffd166', 0.9, this.z);
+    if (this.tambour) addFloater(this.x, this.screenY()-60, 'LE TAMBOUR SE TAIT...', '#cfd4e0', 0.9, this.z);
     if (this.kind === 'boucher'){
       game.score += 1200;
-      addFloater(this.x, this.screenY()-74, 'LE BOUCHER TOMBE \u2014 LA VILLE S OUVRE', '#ffd166');
+      addFloater(this.x, this.screenY()-74, 'LE BOUCHER TOMBE \u2014 LA VILLE S OUVRE', '#ffd166', 0.9, this.z);
       game.shake = Math.max(game.shake, 5);
     }
     if (this.kind === 'agitateur'){
       game.score += 1500;
-      addFloater(this.x, this.screenY()-74, 'L AGITATEUR NEUTRALISE \u2014 LE CAMPUS RESPIRE', '#ffd166');
+      addFloater(this.x, this.screenY()-74, 'L AGITATEUR NEUTRALISE \u2014 LE CAMPUS RESPIRE', '#ffd166', 0.9, this.z);
       game.shake = Math.max(game.shake, 5);
     }
     if (this.kind === 'veteran'){
       game.score += 1800;
-      addFloater(this.x, this.screenY()-74, 'LE VETERAN TOMBE \u2014 LA NUIT VOUS APPELLE', '#ffd166');
+      addFloater(this.x, this.screenY()-74, 'LE VETERAN TOMBE \u2014 LA NUIT VOUS APPELLE', '#ffd166', 0.9, this.z);
       game.shake = Math.max(game.shake, 5);
     }
     if (this.finalBoss){
       game.score += 2500;
-      addFloater(this.x, this.screenY()-74, 'LE SON EST COUPE !', '#ffd166');
+      addFloater(this.x, this.screenY()-74, 'LE SON EST COUPE !', '#ffd166', 0.9, this.z);
       game.victoryT = 2.2;
       game.shake = Math.max(game.shake, 6);
       for (var vb2=0; vb2<3; vb2++){
@@ -1516,6 +1535,12 @@ var PAL_K9  = { suit:'#c68a53', suitD:'#a86f3e', skin:'#c68a53', boot:'#1b1e26',
 var PAL_CRO = { suit:'#8b96ad', suitD:'#6f7a8c', skin:'#d9a066', boot:'#5a6478',
                 pants:'#8b96ad', pantsD:'#6f7a8c', tabard:'#e8e4d8', cross:'#a52f22' };
 
+var FINISHERS = [
+  { id:'cle',         nom:'FINISHER : LA CLE DE BRAS REGLEMENTAIRE' },
+  { id:'droits',      nom:'FINISHER : LECTURE DES DROITS (EN ACCELERE)' },
+  { id:'photo',       nom:'FINISHER : LA PHOTO SOUVENIR' },
+  { id:'attestation', nom:'FINISHER : CONTROLE D ATTESTATION' }
+];
 var WAVE_EVENTS = [
   { id:'apero',     nom:'APERO SAUVAGE',        txt:'Des bouteilles tombent du ciel toute la manche' },
   { id:'bfm',       nom:'BFM EN DIRECT',        txt:'La presse est la : tous les points x1.3' },
@@ -1718,7 +1743,7 @@ Fighter.prototype.update = function(dt){
       if (this.danseTick <= 0){
         this.danseTick = 0.5;
         cible7.mp = Math.max(0, cible7.mp - 7);          // le souffle s en va
-        if (Math.random() < 0.35) addFloater(cible7.x, cible7.screenY() - 46, 'TU DANSES ?', '#ff8ad8');
+        if (Math.random() < 0.35) addFloater(cible7.x, cible7.screenY() - 46, 'TU DANSES ?', '#ff8ad8', 0.9, cible7.z);
       }
       if (Math.random() < 0.14){
         game.particles.push({ x:this.x + rnd(-9, 9), z:this.z, y:rnd(10, 30),
@@ -1741,7 +1766,7 @@ Fighter.prototype.update = function(dt){
         }
         if (fz2.isPlayer && fz2.fury > 0){
           fz2.fury = Math.max(0, fz2.fury - 3);              // l adrenaline retombe : PAIX...
-          if (Math.random() < 0.3) addFloater(fz2.x, fz2.screenY() - 44, 'PAIX...', '#63d68f');
+          if (Math.random() < 0.3) addFloater(fz2.x, fz2.screenY() - 44, 'PAIX...', '#63d68f', 0.9, fz2.z);
         }
       }
     }
@@ -1752,12 +1777,12 @@ Fighter.prototype.update = function(dt){
   if (!this.isPlayer && this.kind === 'gilet' && this.boomT > 0 && !this.dead){
     if (this.state === 'fall' || this.state === 'down' || this.state === 'cuffed' || this.zapT > 0){
       this.boomT = 0;                            // mis a terre : DESAMORCE
-      addFloater(this.x, this.screenY() - 52, 'DESAMORCE...', '#7ec8ff', 1.1);
+      addFloater(this.x, this.screenY() - 52, 'DESAMORCE...', '#7ec8ff', 1.1, this.z);
     } else {
       this.boomT -= dt;
       this.vx = 0;
       if (this.boomT <= 0){
-        addFloater(this.x, this.screenY() - 60, 'EXPLOSION !', '#ff8a3c', 1.3);
+        addFloater(this.x, this.screenY() - 60, 'EXPLOSION !', '#ff8a3c', 1.3, this.z);
         SFX.boom();
         game.shake = Math.max(game.shake, 5);
         addParticles(this.x, this.z, 26, 14, '#ffd23f', 120);
@@ -1807,6 +1832,31 @@ Fighter.prototype.update = function(dt){
     }
   }
   if (this.confusedT > 0) this.confusedT -= dt;
+  if (this.isPlayer && this.trottT > 0){
+    this.trottT -= dt;
+    if (this.klaxCd > 0) this.klaxCd -= dt;
+    if (Math.random() < 0.45){
+      game.particles.push({ x:this.x - this.dir*7, z:this.z, y:rnd(1, 5),
+        vx:-this.dir*rnd(30, 60), vy:rnd(4, 14), vz:0, t:0.2, col:'#8fd3f4' });
+    }
+    for (var tv5 = 0; tv5 < game.fighters.length; tv5++){
+      var tt5 = game.fighters[tv5];
+      if (tt5.isPlayer || tt5.dead || tt5.flying || tt5.state === 'cuffed') continue;
+      if (tt5.trottHitT > 0) continue;
+      if (Math.abs(tt5.x - this.x) < 13 && Math.abs(tt5.z - this.z) < 10){
+        tt5.trottHitT = 0.7;
+        tt5.hurt(9, 170, tt5.x >= this.x ? 1 : -1, true, 'player');
+        addFloater(tt5.x, tt5.screenY() - 54, 'RENVERSE !', '#8fd3f4', 1.1, tt5.z);
+        game.shake = Math.max(game.shake, 2.6);
+        SFX.clang(0.6);
+      }
+    }
+    if (this.trottT <= 0){
+      addFloater(this.x, this.screenY() - 56, 'BATTERIE A PLAT.', '#8b96ad', 1.4, this.z);
+      SFX.block();
+    }
+  }
+  if (this.trottHitT > 0) this.trottHitT -= dt;
   if (this.isPlayer){
     if (this.lbdCd > 0){
       this.lbdCd -= dt;
@@ -1941,12 +1991,12 @@ Fighter.prototype.update = function(dt){
         if (pT && !pT.dead && (pT.x-this.x)*this.dir > 4 &&
             Math.abs(pT.x-this.x) < rng && Math.abs(pT.z-this.z) < 15){
           if (pT.state==='guard' && pT.dir === -this.dir && pT.charId === 'crs' && game.loadout.bouclier === 2){
-            addFloater(pT.x, pT.screenY()-54, 'REFLECHI !', '#7ec8ff');
+            addFloater(pT.x, pT.screenY()-54, 'REFLECHI !', '#7ec8ff', 0.9, pT.z);
           } else {
             pT.paintT = this.artSkin===2 ? 3.2 : 2.2;
             pT.markedT = 4.5;
             game.paintSkin = this.artSkin || 0;
-            addFloater(pT.x, pT.screenY()-56, 'AVEUGLE !', '#ff4fd8');
+            addFloater(pT.x, pT.screenY()-56, 'AVEUGLE !', '#ff4fd8', 0.9, pT.z);
           }
         }
       }
@@ -2015,7 +2065,7 @@ Fighter.prototype.update = function(dt){
             vx:this.dir * (95 + lm*38), vy: 150 + lm*12, vz: 0, spin: 0 });
         }
         SFX.throwS();
-        addFloater(this.x, this.screenY()-70, 'MERGUEZ FLAMBEES !', '#ffb347');
+        addFloater(this.x, this.screenY()-70, 'MERGUEZ FLAMBEES !', '#ffb347', 0.9, this.z);
         SFX.sizzle();
       }
       if (this.stateT >= 0.8) this.setState('idle');
@@ -2052,7 +2102,7 @@ Fighter.prototype.update = function(dt){
           this.chewT = 0.38;
           vic.hurt(5, 0, this.dir, false, 'enemy');
           this.hp = Math.min(this.hpMax, this.hp + 6);
-          addFloater(this.x, this.screenY()-66, 'MIAM !', '#ff8a7a');
+          addFloater(this.x, this.screenY()-66, 'MIAM !', '#ff8a7a', 0.9, this.z);
           SFX.chomp();
           addParticles(vic.x, vic.z, 20, 4, '#e8b48c', 50);
         }
@@ -2062,7 +2112,7 @@ Fighter.prototype.update = function(dt){
           vic.grabbedBy = null;
           vic.setState('fall'); vic.vy = 160; vic.y = Math.max(vic.y, 8);
           vic.vx = -this.dir * 140;
-          addFloater(vic.x, vic.screenY()-56, 'RECRACHE !', '#cfd4e0');
+          addFloater(vic.x, vic.screenY()-56, 'RECRACHE !', '#cfd4e0', 0.9, vic.z);
         }
         this.victim = null;
         this.setState('idle');
@@ -2123,7 +2173,7 @@ Fighter.prototype.update = function(dt){
           var ppts8 = Math.round((60 + game.wave*6) * (game.lois.ruissellement ? 1.25 : 1));
           game.score += ppts8;
           game.evacues = (game.evacues||0) + 1;
-          addFloater(ct.x, ct.screenY()-52, 'EVACUE EN DOUCEUR +' + ppts8, '#7ce38b', 1.3);
+          addFloater(ct.x, ct.screenY()-52, 'EVACUE EN DOUCEUR +' + ppts8, '#7ce38b', 1.3, ct.z);
           game.particles.push({ star:true, x:ct.x, z:ct.z, y:10, t:0.2, r:7, col:'#7ce38b' });
           SFX.pickup();
           stingerCuff();
@@ -2140,7 +2190,7 @@ Fighter.prototype.update = function(dt){
           ct.invulnT = 2;
           ct.zapT = 0; ct.burnT = 0;
           ct.setState('getup');
-          addFloater(ct.x, ct.screenY()-58, 'MENOTTE A LA VIE !', '#7ce38b', 1.4);
+          addFloater(ct.x, ct.screenY()-58, 'MENOTTE A LA VIE !', '#7ce38b', 1.4, ct.z);
           game.particles.push({ star:true, x:ct.x, z:ct.z, y:14, t:0.25, r:9, col:'#7ce38b' });
           SFX.heal();
           stingerCuff();
@@ -2153,17 +2203,36 @@ Fighter.prototype.update = function(dt){
         game.cuffs = (game.cuffs||0) + 1;
         game.combo++; game.comboT = game.comboWin || 1.6;
         if (game.combo > game.bestCombo) game.bestCombo = game.combo;
-        addFloater(ct.x, ct.screenY()-52, 'INTERPELLE ! +' + cpts, '#7ec8ff');
+        addFloater(ct.x, ct.screenY()-52, 'INTERPELLE ! +' + cpts, '#7ec8ff', 0.9, ct.z);
         game.particles.push({ star:true, x:ct.x, z:ct.z, y:10, t:0.2, r:7, col:'#7ec8ff' });
         addParticles(ct.x, ct.z, 12, 8, '#7ec8ff', 60);
         stingerCuff();
         this.fury = Math.min(100, (this.fury || 0) + (game.shop.sangfroid ? 20 : 15));
-        if ((game.honneur || 0) >= 5 && !ct.beaten){
-          spawnItem('trousse', ct.x, clamp(ct.z, Z_MIN, Z_MAX), 22, 5);
-          addFloater(ct.x, ct.screenY()-64, 'MERCI...', '#7ce38b', 1.2);
-        }
         ct.setState('cuffed');          // il reste a plat ventre, menotte
         ct.cuffedT = 6.0;
+        if (Math.random() < 0.45){
+          var fin5 = FINISHERS[irnd(0, FINISHERS.length - 1)];
+          addFloater(ct.x, ct.screenY()-68, fin5.nom, '#c9a0ff', 1.6, ct.z);
+          if (fin5.id === 'photo'){
+            var vf5 = irnd(2000, 42000);
+            game.vues = (game.vues || 0) + vf5;
+            addFloater(ct.x, ct.screenY()-80, '+' + vf5 + ' VUES', '#7ec8ff', 1.4, ct.z);
+            game.flash49 = Math.max(game.flash49 || 0, 0.12);      // le flash de l appareil
+          } else if (fin5.id === 'droits'){
+            this.fury = Math.min(100, (this.fury || 0) + 10);
+            addFloater(ct.x, ct.screenY()-80, 'VOUSAVEZLEDROITDEGARDERLESILENCE +10 ADRENALINE', '#ffd166', 1.5, ct.z);
+          } else if (fin5.id === 'attestation'){
+            game.score += 50;
+            addFloater(ct.x, ct.screenY()-80, 'CASE MAL COCHEE : +50', '#ffd166', 1.3, ct.z);
+          } else {
+            ct.cuffedT = 12;
+            addFloater(ct.x, ct.screenY()-80, 'IL NE BOUGERA PLUS DU TOUT.', '#c9d2e2', 1.3, ct.z);
+          }
+        }
+        if ((game.honneur || 0) >= 5 && !ct.beaten){
+          spawnItem('trousse', ct.x, clamp(ct.z, Z_MIN, Z_MAX), 22, 5);
+          addFloater(ct.x, ct.screenY()-64, 'MERCI...', '#7ce38b', 1.2, ct.z);
+        }
         ct.beaten = false;
         this.cuffTarget = null;
         this.setState('idle');
@@ -2244,7 +2313,7 @@ Fighter.prototype.update = function(dt){
         if (this.pleureAuLever){
           this.pleureAuLever = false; this.pleureRoll = false;
           this.momentT = 1.5; this.momentKind = 'pleure';
-          addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6);
+          addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6, this.z);
         } else { this.pleureRoll = false; }
       }
       break;
@@ -2315,7 +2384,7 @@ Fighter.prototype.tryHit = function(sp){
       this.weapon.uses--;
       if (this.weapon.uses<=0){
         var casse = this.attackKind.indexOf('panc')===0 ? 'Pancarte en miettes !' : 'Matraque cassee !';
-        this.weapon=null; addFloater(this.x,this.screenY()-50,casse,'#ffb4a2');
+        this.weapon=null; addFloater(this.x, this.screenY()-50, casse, '#ffb4a2', 0.9, this.z);
         addParticles(this.x + this.dir*10, this.z, 18, 6, '#e8e2ce', 70);
       }
     }
@@ -2325,7 +2394,7 @@ Fighter.prototype.tryHit = function(sp){
     var otgHit = (this.attackKind === 'stomp' && (t.state === 'down' || t.state === 'cuffed')) || tazeCuff1;
     if (tazeCuff1){
       t.zapT = 0.6;
-      addFloater(t.x, t.screenY() - 54, 'OUILLE !', '#7ec8ff', 1.1);
+      addFloater(t.x, t.screenY() - 54, 'OUILLE !', '#7ec8ff', 1.1, t.z);
       addParticles(t.x, t.z, 10, 14, '#7ec8ff', 80);
       SFX.grunt(1.6);
       beep(2400, 0.09, 'square', 0.05, -300);
@@ -2340,7 +2409,7 @@ Fighter.prototype.tryHit = function(sp){
     if (this.isPlayer && etaitCuffed && otgHit){
       t.beaten = true;
       game.ripou = Math.min(10, (game.ripou || 0) + 1);
-      addFloater(t.x, t.screenY()-58, 'RIPOU +1', '#ff6b5e');
+      addFloater(t.x, t.screenY()-58, 'RIPOU +1', '#ff6b5e', 0.9, t.z);
       if (game.ripou >= 5){
         // la reputation precede : un manifestant prefere fuir (zero point)
         for (var pf=0; pf<game.fighters.length; pf++){
@@ -2348,7 +2417,7 @@ Fighter.prototype.tryHit = function(sp){
           if (!pff.isPlayer && !pff.dead && !pff.boss && pff.kind !== 'journaliste' &&
               pff.state !== 'cuffed' && pff.state !== 'flee' && pff !== t){
             pff.setState('flee');
-            addFloater(pff.x, pff.screenY()-50, 'IL FUIT LE RIPOU !', '#c9a0ff');
+            addFloater(pff.x, pff.screenY()-50, 'IL FUIT LE RIPOU !', '#c9a0ff', 0.9, pff.z);
             break;
           }
         }
@@ -2357,7 +2426,7 @@ Fighter.prototype.tryHit = function(sp){
     impactFX(t.x - this.dir*4, t.z, otgHit ? 5 : 18, kdF, this.isPlayer ? '#ffd166' : '#ff8a6b');
     if (this.attackKind === 'pommeau3' && !t.dead && t.state === 'hitstun' && !t.boss){
       t.stateT = -0.35;
-      addFloater(t.x, t.screenY()-52, 'SONNE !', '#f5da6a');
+      addFloater(t.x, t.screenY()-52, 'SONNE !', '#f5da6a', 0.9, t.z);
       addParticles(t.x, t.z, 24, 4, '#f5da6a', 45);
     }
     if (this.weapon && this.weapon.type==='taser' &&
@@ -2365,12 +2434,12 @@ Fighter.prototype.tryHit = function(sp){
         !t.dead && t.state === 'hitstun' && !t.boss){
       t.stateT = -0.55;
       addParticles(t.x, t.z, 20, 6, '#7ef2ff', 70);
-      addFloater(t.x, t.screenY()-52, 'BZZT !', '#7ef2ff');
+      addFloater(t.x, t.screenY()-52, 'BZZT !', '#7ef2ff', 0.9, t.z);
     }
     if (taser && !t.dead && t.state === 'hitstun'){
       t.stateT = -0.7; // etourdi sur place par l arc electrique
       addParticles(t.x, t.z, 20, 6, '#7ef2ff', 70);
-      addFloater(t.x, t.screenY()-52, 'BZZT !', '#7ef2ff');
+      addFloater(t.x, t.screenY()-52, 'BZZT !', '#7ef2ff', 0.9, t.z);
     }
   }
   // le CRS peut demolir les barricades
@@ -2392,6 +2461,10 @@ Fighter.prototype.tryHit = function(sp){
 /* -------- controle joueur -------- */
 Fighter.prototype.playerControl = function(dt, slow){
   var keys = this.keys || {};
+  if (this.trottT > 0 && keys.DEF){
+    this.trottT = 0;                             // descente propre, batterie rendue
+    addFloater(this.x, this.screenY()-52, 'ON DESCEND.', '#8fd3f4', 1, this.z);
+  }
   var mx = (keys.R?1:0) - (keys.L?1:0);
   var mz = (keys.D2?1:0) - (keys.U?1:0);
 
@@ -2403,7 +2476,7 @@ Fighter.prototype.playerControl = function(dt, slow){
         if (this.charId === 'crs'){
           this.sig2Cd = 7 * s2m; this.shootLob = true;
           this.setState('shoot'); this.hitDone = false;
-          addFloater(this.x, this.screenY()-52, 'TIR EN CLOCHE !', '#ffd166');
+          addFloater(this.x, this.screenY()-52, 'TIR EN CLOCHE !', '#ffd166', 0.9, this.z);
           return;
         }
         if (this.charId === 'ministre'){
@@ -2432,7 +2505,7 @@ Fighter.prototype.playerControl = function(dt, slow){
         game.projectiles.push({ type:'decret', vise:true, owner:this,
           x:this.x + this.dir*8, z:this.z, y:20, vx:this.dir*230, vy:8, vz:0, spin:0 });
         SFX.throwS();
-        addFloater(this.x, this.screenY()-56, 'PAR DECRET.', '#cfd4e0');
+        addFloater(this.x, this.screenY()-56, 'PAR DECRET.', '#cfd4e0', 0.9, this.z);
         this.sigMode = 'tir'; this.setState('shout'); this.hitDone = true; return;
       }
       if (this.charId === 'k9'){
@@ -2440,7 +2513,7 @@ Fighter.prototype.playerControl = function(dt, slow){
         game.projectiles.push({ type:'wouf', owner:this,
           x:this.x + this.dir*10, z:this.z, y:0, vx:this.dir*190, vy:0, vz:0, spin:0, vieT:0.62 });
         SFX.bark();
-        addFloater(this.x, this.screenY()-52, 'WOUF !', '#8fd3f4');
+        addFloater(this.x, this.screenY()-52, 'WOUF !', '#8fd3f4', 0.9, this.z);
         this.sigMode = 'tir'; this.setState('shout'); this.hitDone = true; return;
       }
       if (this.charId === 'croise'){
@@ -2448,7 +2521,7 @@ Fighter.prototype.playerControl = function(dt, slow){
         game.projectiles.push({ type:'croix', owner:this,
           x:this.x + this.dir*8, z:this.z, y:18, vx:this.dir*235, vy:0, vz:0, spin:0 });
         SFX.epee();
-        addFloater(this.x, this.screenY()-56, 'QUE LA FOI PORTE.', '#ffd166');
+        addFloater(this.x, this.screenY()-56, 'QUE LA FOI PORTE.', '#ffd166', 0.9, this.z);
         this.sigMode = 'tir'; this.setState('shout'); this.hitDone = true; return;
       }
     }
@@ -2476,7 +2549,7 @@ Fighter.prototype.playerControl = function(dt, slow){
   var running = this.state === 'run';
   if (running && ((this.dir===1 && !keys.R) || (this.dir===-1 && !keys.L))) { running=false; this.setState('walk'); }
 
-  var sp = (running ? this.speed*2 : this.speed) * slow * (this.sprintT > 0 ? 1.5 : 1);
+  var sp = (running ? this.speed*2 : this.speed) * slow * (this.sprintT > 0 ? 1.5 : 1) * (this.trottT > 0 ? 1.6 : 1);
   if (this.sprintT > 0 && Math.random() < 0.5){
     game.particles.push({ x:this.x - this.dir*rnd(4,10), z:this.z+rnd(-2,2), y:rnd(4,14),
       vx:-this.dir*rnd(50,90), vy:0, vz:0, t:0.15, col:'rgba(184,166,138,0.6)', line:true });
@@ -2509,6 +2582,24 @@ Fighter.prototype.playerJump = function(){
 };
 
 Fighter.prototype.playerAttack = function(){
+  if (this.trottT > 0){
+    // au guidon, l attaque devient LE KLAXON
+    if (!(this.klaxCd > 0)){
+      this.klaxCd = 1;
+      addFloater(this.x, this.screenY()-56, 'DRING DRING !', '#8fd3f4', 1.1, this.z);
+      beep(1560, 0.07, 'square', 0.08); beep(1560, 0.09, 'square', 0.08, 0, 0.13);
+      game.particles.push({ wave:true, x:this.x, z:this.z, y:16, r:6, t:0.32, col:'rgba(143,211,244,' });
+      for (var kx5 = 0; kx5 < game.fighters.length; kx5++){
+        var kf5 = game.fighters[kx5];
+        if (kf5.isPlayer || kf5.dead || kf5.boss || kf5.state === 'cuffed' || AMBIANTS[kf5.kind]) continue;
+        if (Math.abs(kf5.x - this.x) < 64 && Math.abs(kf5.z - this.z) < 26){
+          kf5.fleeT = Math.max(kf5.fleeT || 0, 1.1);
+          addFloater(kf5.x, kf5.screenY()-46, '!', '#8fd3f4', 0.9, kf5.z);
+        }
+      }
+    }
+    return;
+  }
   // enchainement de combo pendant un coup
   if (this.state === 'attack'){
     var sp = this.attackSpec();
@@ -2534,7 +2625,7 @@ Fighter.prototype.playerAttack = function(){
       this.pushCd = 0.7;
       this.startAttack('push');
       SFX.block();
-      addFloater(this.x, this.screenY()-52, 'POUSSEZ !', '#8fd3f4');
+      addFloater(this.x, this.screenY()-52, 'POUSSEZ !', '#8fd3f4', 0.9, this.z);
     }
     return;
   }
@@ -2620,12 +2711,12 @@ Fighter.prototype.trySpecial = function(name){
         this.z = ren.z;
         this.dir = ren.x >= this.x ? 1 : -1;
         ren.confusedT = 1.2;
-        addFloater(ren.x, ren.screenY()-48, '?!', '#cfd4e0');
+        addFloater(ren.x, ren.screenY()-48, '?!', '#cfd4e0', 0.9, ren.z);
       } else {
         this.vx = -this.dir * 150;
         this.setState('dodge');
       }
-      addFloater(this.x, this.screenY()-52, 'REMANIEMENT !', '#e8e4d8');
+      addFloater(this.x, this.screenY()-52, 'REMANIEMENT !', '#e8e4d8', 0.9, this.z);
       addParticles(this.x, this.z, 20, 8, '#e8e4d8', 60);
       SFX.promesses();
       return true;
@@ -2635,7 +2726,7 @@ Fighter.prototype.trySpecial = function(name){
       if (this.mp < 12) return false;
       this.mp -= 12;
       this.startAttack('trip');
-      addFloater(this.x, this.screenY()-52, 'CROC-EN-JAMBE !', '#8fd3f4');
+      addFloater(this.x, this.screenY()-52, 'CROC-EN-JAMBE !', '#8fd3f4', 0.9, this.z);
       return true;
     }
     if (this.charId === 'croise'){
@@ -2644,7 +2735,7 @@ Fighter.prototype.trySpecial = function(name){
       this.mp -= 18;
       this.smiteX = clamp(this.x + this.dir*55, 12, MAP_W-12);
       this.setState('smiting'); this.hitDone = false;
-      addFloater(this.x, this.screenY()-52, 'JUGEMENT !', '#f5da6a');
+      addFloater(this.x, this.screenY()-52, 'JUGEMENT !', '#f5da6a', 0.9, this.z);
       SFX.cloche();
       return true;
     }
@@ -2658,14 +2749,14 @@ Fighter.prototype.trySpecial = function(name){
       if (Math.abs(stx.x - rx0) < 42 && Math.abs(stx.z - rz0) < 20 &&
           stx.state !== 'down' && stx.state !== 'fall' && stx.state !== 'getup'){
         stx.setState('hitstun'); stx.stateT = -0.5; stx.vx = 0;
-        addFloater(stx.x, stx.screenY()-48, '!', '#f2f5fa');
+        addFloater(stx.x, stx.screenY()-48, '!', '#f2f5fa', 0.9, stx.z);
       }
     }
     game.particles.push({ star:true, x:rx0, z:rz0, y:18, t:0.18, r:9, col:'#f2f5fa' });
     game.particles.push({ wave:true, x:rx0, z:rz0, y:14, r:8, t:0.3, col:'rgba(242,245,250,' });
     this.vx = -this.dir * 165;
     this.setState('dodge');
-    addFloater(this.x, this.screenY()-52, 'RETRAITE TACTIQUE !', '#8fd3f4');
+    addFloater(this.x, this.screenY()-52, 'RETRAITE TACTIQUE !', '#8fd3f4', 0.9, this.z);
     SFX.lbdShot();
     return true;
   }
@@ -2674,7 +2765,7 @@ Fighter.prototype.trySpecial = function(name){
     if (name === 'charge' && this.mp >= 15){
       this.mp -= 15;
       this.sprintT = (this.spec && this.spec.sprintPlus) ? 2.6 : 1.6;
-      addFloater(this.x, this.screenY()-52, 'SPRINT !', '#8fd3f4');
+      addFloater(this.x, this.screenY()-52, 'SPRINT !', '#8fd3f4', 0.9, this.z);
       addParticles(this.x, this.z, 2, 8, '#b8a68a', 60);
       return true;
     }
@@ -2694,7 +2785,7 @@ Fighter.prototype.trySpecial = function(name){
     this.mp -= 25;
     this.throwType = 'decret-mp';
     this.setState('throwing'); this.hitDone = false;
-    addFloater(this.x, this.screenY()-52, 'PROMESSES !', '#e8e4d8');
+    addFloater(this.x, this.screenY()-52, 'PROMESSES !', '#e8e4d8', 0.9, this.z);
     SFX.promesses();
     return true;
   }
@@ -2706,7 +2797,7 @@ Fighter.prototype.trySpecial = function(name){
     this.weaponBackup = this.weapon; // on garde l arme
     this.throwType = 'grenade-mp';
     this.setState('throwing'); this.hitDone = false;
-    addFloater(this.x, this.screenY()-52, 'LACRYMO !', '#a8d08d');
+    addFloater(this.x, this.screenY()-52, 'LACRYMO !', '#a8d08d', 0.9, this.z);
     return true;
   }
   if (name==='sommation' && this.mp >= 20){
@@ -2723,19 +2814,19 @@ Fighter.prototype.pickUp = function(it){
   if (this.charId === 'k9' && it.type !== 'trousse' && this.weapon == null &&
       (it.type === 'matraque' || it.type === 'taser' || it.type === 'pancarte' ||
        it.type === 'bouteille' || it.type === 'grenade' || it.type === 'extincteur')){
-    addFloater(this.x, this.screenY()-48, 'CROC !', '#8fd3f4');
+    addFloater(this.x, this.screenY()-48, 'CROC !', '#8fd3f4', 0.9, this.z);
   }
   game.particles.push({ star:true, x:it.x, z:it.z, y:10, t:0.14, r:4.5, col:'#ffd166' });
   if (it.type==='piece'){
     game.score += 25;
     game.pieces = (game.pieces||0) + 1;
-    addFloater(this.x, this.screenY()-48, '+25', '#ffd166');
+    addFloater(this.x, this.screenY()-48, '+25', '#ffd166', 0.9, this.z);
     beep(1560, 0.06, 'square', 0.05); beep(2080, 0.09, 'square', 0.05, 0, 0.06);
     it.remove = true; return;
   }
   if (it.type==='trousse'){
     this.hp = Math.min(this.hpMax, this.hp + 35);
-    addFloater(this.x, this.screenY()-50, '+35 PV', '#7ce38b'); SFX.heal();
+    addFloater(this.x, this.screenY()-50, '+35 PV', '#7ce38b', 0.9, this.z); SFX.heal();
     for (var hp5=0; hp5<7; hp5++){
       game.particles.push({ x:this.x+rnd(-6,6), z:this.z+rnd(-3,3), y:rnd(4,18),
         vx:rnd(-6,6), vy:rnd(26,50), vz:0, t:rnd(0.4,0.7), col:'#7ce38b', ember:true });
@@ -2744,25 +2835,33 @@ Fighter.prototype.pickUp = function(it){
   }
   if (it.type==='canette'){
     this.mp = Math.min(this.mpMax, this.mp + 40);
-    addFloater(this.x, this.screenY()-50, '+40 MP', '#8fd3f4'); SFX.heal();
+    addFloater(this.x, this.screenY()-50, '+40 MP', '#8fd3f4', 0.9, this.z); SFX.heal();
     it.remove = true; return;
   }
   if (it.type==='cafe'){
     this.mp = Math.min(this.mpMax, this.mp + 30);
     this.sprintT = Math.max(this.sprintT || 0, 2.5);
-    addFloater(this.x, this.screenY()-50, '+30 MP \u00B7 BOOST !', '#c98a4a'); SFX.heal();
+    addFloater(this.x, this.screenY()-50, '+30 MP \u00B7 BOOST !', '#c98a4a', 0.9, this.z); SFX.heal();
+    it.remove = true; return;
+  }
+  if (it.type==='trott'){
+    this.trottT = 8;
+    this.klaxCd = 0;
+    addFloater(this.x, this.screenY()-54, 'TROTTINETTE ! 8 SECONDES DE GLOIRE', '#8fd3f4', 1.6, this.z);
+    SFX.pickup();
+    beep(1560, 0.07, 'square', 0.06); beep(1560, 0.07, 'square', 0.06, 0, 0.12);
     it.remove = true; return;
   }
   if (it.type==='casque'){
     this.helmetHits = 3;
-    addFloater(this.x, this.screenY()-50, 'CASQUE : 3 COUPS AMORTIS', '#f2c53d'); SFX.pickup();
+    addFloater(this.x, this.screenY()-50, 'CASQUE : 3 COUPS AMORTIS', '#f2c53d', 0.9, this.z); SFX.pickup();
     it.remove = true; return;
   }
   this.dropWeapon();
   this.weapon = { type: it.type, uses: it.uses };
   it.remove = true;
   SFX.pickup();
-  addFloater(this.x, this.screenY()-50, ITEM_LABEL[it.type], '#ffd166');
+  addFloater(this.x, this.screenY()-50, ITEM_LABEL[it.type], '#ffd166', 0.9, this.z);
 };
 
 Fighter.prototype.releaseThrow = function(){
@@ -2832,7 +2931,7 @@ Fighter.prototype.aiControl = function(dt, slow){
         this.filmT = 4.5;
         var vu8 = irnd(120, 9400);
         game.vues = (game.vues || 0) + vu8;
-        addFloater(this.x, this.screenY() - 54, '+' + vu8 + ' VUES', '#7ec8ff', 1.3);
+        addFloater(this.x, this.screenY() - 54, '+' + vu8 + ' VUES', '#7ec8ff', 1.3, this.z);
       }
     }
     return;                                          // il ne frappe pas : il documente.
@@ -2851,7 +2950,7 @@ Fighter.prototype.aiControl = function(dt, slow){
         game.applaudis = (game.applaudis || 0) + 1;
         this.claque = 1.4;
         if (Math.random() < 0.45){
-          addFloater(this.x, this.screenY() - 26, (ENEMY_TYPES.bourgeoise.slogans)[irnd(0, 4)], '#e8a0d0', 1.6);
+          addFloater(this.x, this.screenY() - 26, (ENEMY_TYPES.bourgeoise.slogans)[irnd(0, 4)], '#e8a0d0', 1.6, this.z);
         }
         addParticles(pj8.x, pj8.z, 4, 18, '#e8a0d0', 30);
       }
@@ -2881,7 +2980,7 @@ Fighter.prototype.aiControl = function(dt, slow){
         this.startAttack('slap');
         if (!cib8.isPlayer){                          // les manifestants aussi y ont droit
           cib8.hurt(5, 55, cib8.x >= this.x ? 1 : -1, false, 'enemy');
-          addFloater(cib8.x, cib8.screenY() - 46, 'AIE !', '#ffb0a0', 1.1);
+          addFloater(cib8.x, cib8.screenY() - 46, 'AIE !', '#ffb0a0', 1.1, cib8.z);
         }
       }
       return;
@@ -2903,7 +3002,7 @@ Fighter.prototype.aiControl = function(dt, slow){
       if (this.soinT <= 0 && this.patient && !this.patient.dead && this.patient.state !== 'cuffed' &&
           Math.abs(this.patient.x - this.x) < 22 && Math.abs(this.patient.z - this.z) < 14){
         this.patient.hp = Math.min(this.patient.hpMax, this.patient.hp + 18);
-        addFloater(this.patient.x, this.patient.screenY() - 50, 'SERUM PHY +18', '#7ce38b', 1.2);
+        addFloater(this.patient.x, this.patient.screenY() - 50, 'SERUM PHY +18', '#7ce38b', 1.2, this.patient.z);
         game.particles.push({ star:true, x:this.patient.x, z:this.patient.z, y:10, t:0.2, r:6, col:'#7ce38b' });
         this.patient = null;
         this.soinCd = 3;
@@ -2929,7 +3028,7 @@ Fighter.prototype.aiControl = function(dt, slow){
         this.soinT = 1.1;
         this.vx = 0;
         this.setState('idle');
-        addFloater(this.x, this.screenY() - 54, 'MEDIC !', '#7ce38b', 1.3);
+        addFloater(this.x, this.screenY() - 54, 'MEDIC !', '#7ce38b', 1.3, this.z);
         return;
       }
       this.x += this.dir * this.speed * dt;
@@ -2948,7 +3047,7 @@ Fighter.prototype.aiControl = function(dt, slow){
       this.boomT = 1.05;
       this.vx = 0;
       this.setState('idle');
-      addFloater(this.x, this.screenY() - 58, 'MACRON !', '#ffd23f', 1.3);
+      addFloater(this.x, this.screenY() - 58, 'MACRON !', '#ffd23f', 1.3, this.z);
       beep(880, 0.12, 'square', 0.07); beep(880, 0.12, 'square', 0.07, 0, 0.25); beep(880, 0.12, 'square', 0.07, 0, 0.5);
       return;
     }
@@ -2989,7 +3088,7 @@ Fighter.prototype.aiControl = function(dt, slow){
     this.x += clamp(dvx, -this.speed * dt, this.speed * dt);
     this.z += clamp(p.z - this.z, -30 * dt, 30 * dt);
     if (Math.abs(this.x - p.x) < 26 && Math.abs(this.z - p.z) < 20){
-      if (!(p.droneT > 0)) addFloater(p.x, p.screenY() - 62, 'FILME PAR LE DRONE !', '#ff9b8e');
+      if (!(p.droneT > 0)) addFloater(p.x, p.screenY() - 62, 'FILME PAR LE DRONE !', '#ff9b8e', 0.9, p.z);
       p.droneT = 0.3;
     }
     if (this.state !== 'walk' && this.state !== 'idle') return;
@@ -3000,7 +3099,7 @@ Fighter.prototype.aiControl = function(dt, slow){
     // il filme : garde ses distances, cadre le joueur
     this.pressT -= dt;
     if (this.pressT <= 0 && this.state !== 'flee'){
-      addFloater(this.x, this.screenY()-50, 'LE JT EST BOUCLE', '#8b96ad');
+      addFloater(this.x, this.screenY()-50, 'LE JT EST BOUCLE', '#8b96ad', 0.9, this.z);
       this.setState('flee');
       return;
     }
@@ -3027,7 +3126,7 @@ Fighter.prototype.aiControl = function(dt, slow){
       this.momentT = 0;
       this.setState('flee');
       this.fleeT = 999;
-      addFloater(this.x, this.screenY() - 56, PANIQUES[irnd(0, PANIQUES.length - 1)], '#ffd166', 1.5);
+      addFloater(this.x, this.screenY() - 56, PANIQUES[irnd(0, PANIQUES.length - 1)], '#ffd166', 1.5, this.z);
       return;
     }
     if (this.momentT > 0){
@@ -3051,12 +3150,12 @@ Fighter.prototype.aiControl = function(dt, slow){
           this.agT -= dt;
           if (this.agT <= 0){
             this.agT = 0.95;
-            addFloater(this.x, this.screenY() - 54, AG_PHRASES[irnd(0, AG_PHRASES.length - 1)], '#ffd166', 1.2);
+            addFloater(this.x, this.screenY() - 54, AG_PHRASES[irnd(0, AG_PHRASES.length - 1)], '#ffd166', 1.2, this.z);
           }
         }
         if (this.momentT <= 0){
           if (this.agParle){
-            addFloater(this.x, this.screenY() - 58, FIN_AG[irnd(0, FIN_AG.length - 1)], '#8b96ad', 1.6);
+            addFloater(this.x, this.screenY() - 58, FIN_AG[irnd(0, FIN_AG.length - 1)], '#8b96ad', 1.6, this.z);
             this.agParle = false;
           }
           this.momentKind = '';
@@ -3068,7 +3167,7 @@ Fighter.prototype.aiControl = function(dt, slow){
         if (sc9 && !sc9.dead && sc9.state !== 'cuffed' &&
             Math.abs(sc9.x - this.x) < 36 && Math.abs(sc9.z - this.z) < 18){
           sc9.hurt(5, 45, sc9.x >= this.x ? 1 : -1, false, 'enemy');   // le debat s envenime
-          addFloater(sc9.x, sc9.screenY() - 46, 'AIE !', '#ff9d5c', 1.1);
+          addFloater(sc9.x, sc9.screenY() - 46, 'AIE !', '#ff9d5c', 1.1, sc9.z);
           SFX.hit();
         }
       }
@@ -3093,7 +3192,7 @@ Fighter.prototype.aiControl = function(dt, slow){
       if (cam9 && tir6 < 0.3){
         this.momentT = 1.6; this.momentKind = 'scission'; this.scissionCible = cam9;
         this.dir = cam9.x >= this.x ? 1 : -1;
-        addFloater(this.x, this.screenY() - 52, SCISSIONS[irnd(0, SCISSIONS.length - 1)], '#ff9d5c', 1.7);
+        addFloater(this.x, this.screenY() - 52, SCISSIONS[irnd(0, SCISSIONS.length - 1)], '#ff9d5c', 1.7, this.z);
         cam9.momentT = 1.7; cam9.momentKind = 'scission'; cam9.scissionCible = this;
         cam9.dir = this.x >= cam9.x ? 1 : -1;
         cam9.momentCd = rnd(7, 13);
@@ -3101,13 +3200,13 @@ Fighter.prototype.aiControl = function(dt, slow){
         if (tir6 < 0.45){
           this.momentT = 1.15; this.momentKind = 'insulte';
           this.dir = p.x >= this.x ? 1 : -1;
-          addFloater(this.x, this.screenY() - 52, INSULTES[irnd(0, INSULTES.length - 1)], '#ffb0a0', 1.5);
+          addFloater(this.x, this.screenY() - 52, INSULTES[irnd(0, INSULTES.length - 1)], '#ffb0a0', 1.5, this.z);
         } else if (tir6 < 0.65 && this.hp < this.hpMax * 0.75){
           this.momentT = 1.5; this.momentKind = 'pleure';
-          addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6);
+          addFloater(this.x, this.screenY() - 52, PLEURS[irnd(0, PLEURS.length - 1)], '#9fc4e8', 1.6, this.z);
         } else if (tir6 < 0.8){
           this.momentT = 1.8; this.momentKind = 'clope';
-          addFloater(this.x, this.screenY() - 52, CLOPES[irnd(0, CLOPES.length - 1)], '#c9d2e4', 1.5);
+          addFloater(this.x, this.screenY() - 52, CLOPES[irnd(0, CLOPES.length - 1)], '#c9d2e4', 1.5, this.z);
         }
       }
     }
@@ -3142,7 +3241,7 @@ Fighter.prototype.aiControl = function(dt, slow){
     this.sloganT = rnd(7, 13);
     var et0 = ENEMY_TYPES[this.kind];
     if (et0 && et0.slogans && Math.random() < 0.65){
-      addFloater(this.x, this.screenY()-48, et0.slogans[irnd(0, et0.slogans.length-1)], '#f2d9a0', 1.4);
+      addFloater(this.x, this.screenY()-48, et0.slogans[irnd(0, et0.slogans.length-1)], '#f2d9a0', 1.4, this.z);
     }
   }
 
@@ -3191,7 +3290,7 @@ Fighter.prototype.aiControl = function(dt, slow){
     this.z += Math.cos(this.animT*2.3) * wsp * 0.5 * dt;
     this.x = clamp(this.x, 8, MAP_W-8); this.z = clamp(this.z, Z_MIN, Z_MAX);
     if (this.state === 'idle') this.setState('walk');
-    if (Math.random() < 0.015) addFloater(this.x, this.screenY()-48, '?', '#cfd4e0');
+    if (Math.random() < 0.015) addFloater(this.x, this.screenY()-48, '?', '#cfd4e0', 0.9, this.z);
     return;
   }
 
@@ -3226,7 +3325,7 @@ Fighter.prototype.aiControl = function(dt, slow){
   if ((this.boss || this.kind === 'theoricien') && this.shoutCd <= 0 && Math.abs(dx) < 78 && Math.abs(dz) < 26){
     this.shoutCd = 4.5;
     this.setState('shout'); this.hitDone = false;
-    addFloater(this.x, this.screenY()-58, 'DISCOURS !', '#e0b8ff');
+    addFloater(this.x, this.screenY()-58, 'DISCOURS !', '#e0b8ff', 0.9, this.z);
     return;
   }
 
@@ -3234,7 +3333,7 @@ Fighter.prototype.aiControl = function(dt, slow){
   if (this.activiste && this.sitCd <= 0 && this.hp < this.hpMax*0.55){
     this.sitCd = 11;
     this.setState('sitin');
-    addFloater(this.x, this.screenY()-52, 'SIT-IN !', '#c8f2c2');
+    addFloater(this.x, this.screenY()-52, 'SIT-IN !', '#c8f2c2', 0.9, this.z);
     return;
   }
 
@@ -3362,7 +3461,7 @@ Fighter.prototype.aiDJ = function(dt, p){
   var cdMul = enrage ? 0.55 : 1;
   if (enrage && !this.enrageDit){
     this.enrageDit = true;
-    addFloater(this.x, this.screenY() - 66, 'MONTE LE SON !!', '#ff5cf0');
+    addFloater(this.x, this.screenY() - 66, 'MONTE LE SON !!', '#ff5cf0', 0.9, this.z);
     game.shake = Math.max(game.shake, 4);
   }
   if (this.state !== 'idle' && this.state !== 'walk') return;
@@ -3371,7 +3470,7 @@ Fighter.prototype.aiDJ = function(dt, p){
   // LE DROP : rafale de trois ondes espacees
   if (this.dropCd <= 0){
     this.dropCd = 12 * cdMul;
-    addFloater(this.x, this.screenY() - 60, 'LE DROP !', '#ff5cf0');
+    addFloater(this.x, this.screenY() - 60, 'LE DROP !', '#ff5cf0', 0.9, this.z);
     for (var d5 = 0; d5 < 3; d5++){
       game.projectiles.push({
         type: 'onde', owner: this,
@@ -3406,7 +3505,7 @@ Fighter.prototype.aiDJ = function(dt, p){
       jn.x = clamp(this.x + (c5 === 0 ? -60 : 60), 20, MAP_W - 20);
       jn.z = this.z;
     }
-    addFloater(this.x, this.screenY() - 56, 'LE PUBLIC EST CHAUD !', '#ff5cf0');
+    addFloater(this.x, this.screenY() - 56, 'LE PUBLIC EST CHAUD !', '#ff5cf0', 0.9, this.z);
     return;
   }
   // il reste pres de ses platines : petit repositionnement
@@ -3432,7 +3531,7 @@ Fighter.prototype.aiAgitateur = function(dt, p){
     this.z = p.z;
     this.dir = p.x >= this.x ? 1 : -1;
     addParticles(this.x, this.z, 16, 12, '#8b96ad', 60);
-    addFloater(this.x, this.screenY() - 56, 'DANS TON DOS !', '#c9a0ff');
+    addFloater(this.x, this.screenY() - 56, 'DANS TON DOS !', '#c9a0ff', 0.9, this.z);
     SFX.dodge ? SFX.dodge() : noiseBurst(0.09, 1200, 0.05, 'highpass');
     return;
   }
@@ -3470,7 +3569,7 @@ Fighter.prototype.aiVeteran = function(dt, p){
   var enrage = this.hp < this.hpMax * 0.4;
   if (enrage && !this.enrageDit){
     this.enrageDit = true;
-    addFloater(this.x, this.screenY() - 62, 'VOUS NE COMPRENEZ RIEN !', '#ff6b5e');
+    addFloater(this.x, this.screenY() - 62, 'VOUS NE COMPRENEZ RIEN !', '#ff6b5e', 0.9, this.z);
     game.shake = Math.max(game.shake, 3);
   }
   var cdMul = enrage ? 0.6 : 1;
@@ -3495,7 +3594,7 @@ Fighter.prototype.aiVeteran = function(dt, p){
     SFX.lbdShot();
     this.setState('attack'); this.stateT = 0;
     this.attackKind = 'epunch'; this.attackSpecV = ATTACKS.epunch;
-    addFloater(this.x, this.screenY() - 56, 'SOMMATION.', '#7ec8ff');
+    addFloater(this.x, this.screenY() - 56, 'SOMMATION.', '#7ec8ff', 0.9, this.z);
     return;
   }
   // charge bouclier
@@ -3544,7 +3643,7 @@ Fighter.prototype.bossAI = function(dt, slow, p){
     addParticles(this.x - 14, this.z, 12, 10, '#c8ccd6', 80);
     game.particles.push({ wave:true, x:this.x, z:this.z, y:6, r:10, t:0.4, col:'rgba(255,209,102,' });
     game.particles.push({ wave:true, x:this.x, z:this.z, y:6, r:22, t:0.32, col:'rgba(255,209,102,' });
-    addFloater(this.x, this.screenY()-76, 'PERSONNE NE TOUCHE A MON STAND !!', '#ffd166');
+    addFloater(this.x, this.screenY()-76, 'PERSONNE NE TOUCHE A MON STAND !!', '#ffd166', 0.9, this.z);
     return;
   }
   var ph = this.hp < this.hpMax*0.33 ? 3 : (this.hp < this.hpMax*0.66 ? 2 : 1);
@@ -3558,7 +3657,7 @@ Fighter.prototype.bossAI = function(dt, slow, p){
   if (ph === 3 && !this.enraged){
     this.enraged = true;
     this.speed *= 1.35;
-    addFloater(this.x, this.screenY()-74, 'CA SUFFIT MAINTENANT !!', '#ff6b5e');
+    addFloater(this.x, this.screenY()-74, 'CA SUFFIT MAINTENANT !!', '#ff6b5e', 0.9, this.z);
     game.shake = Math.max(game.shake, 5);
     SFX.shout();
   }
@@ -3570,7 +3669,7 @@ Fighter.prototype.bossAI = function(dt, slow, p){
     this.gasCd = ph === 3 ? 7 : 9;
     game.clouds.push({ x:this.x + this.dir*10, z:this.z, r:14, rMax:42, t:3.6, tick:0, vil:true });
     SFX.gaz();
-    addFloater(this.x, this.screenY()-68, 'GAZ VIL !', '#a8d08d');
+    addFloater(this.x, this.screenY()-68, 'GAZ VIL !', '#a8d08d', 0.9, this.z);
     SFX.gas();
     return;
   }
@@ -3591,7 +3690,7 @@ Fighter.prototype.bossAI = function(dt, slow, p){
       this.callCd = 11;
       this.setState('shout'); this.hitDone = true;
       spawnEnemy(); spawnEnemy();
-      addFloater(this.x, this.screenY()-74, 'A MOI LA MANIF !', '#f2d9a0');
+      addFloater(this.x, this.screenY()-74, 'A MOI LA MANIF !', '#f2d9a0', 0.9, this.z);
       SFX.shout();
       return;
     }
@@ -3606,7 +3705,7 @@ Fighter.prototype.bossAI = function(dt, slow, p){
     this.chewT = 0.30;
     p.grabbedBy = this;
     p.setState('hitstun'); p.vx = 0;
-    addFloater(this.x, this.screenY()-74, 'DEVORER !', '#ff8a7a');
+    addFloater(this.x, this.screenY()-74, 'DEVORER !', '#ff8a7a', 0.9, this.z);
     SFX.shout();
     return;
   }
@@ -3620,7 +3719,7 @@ Fighter.prototype.bossAI = function(dt, slow, p){
   if (this.hookCd <= 0 && adx > 55 && adx < 185 && Math.abs(dz) < 11){
     this.hookCd = ph === 3 ? 4.5 : 6.5;
     this.setState('hooking'); this.hitDone = false;
-    addFloater(this.x, this.screenY()-74, 'CROCHET !', '#ffd166');
+    addFloater(this.x, this.screenY()-74, 'CROCHET !', '#ffd166', 0.9, this.z);
     return;
   }
   // approche pesante
@@ -3675,7 +3774,7 @@ function doShout(f){
     if (mode === '493'){
       SFX.jingle493();
       // onde decretale frontale : tout tombe
-      addFloater(f.x, f.screenY()-58, '49.3 !', '#ffd166');
+      addFloater(f.x, f.screenY()-58, '49.3 !', '#ffd166', 0.9, f.z);
       game.shake = Math.max(game.shake, 7);
       var r493 = (f.spec && f.spec.w493) ? 110 : 72;
       var z493 = (f.spec && f.spec.w493) ? 34 : 26;
@@ -3694,7 +3793,7 @@ function doShout(f){
     if (mode === 'bark'){
       SFX.bark();
       // aboiement : les manifestants fuient
-      addFloater(f.x, f.screenY()-52, 'WOUAF ! WOUAF !', '#ffd166');
+      addFloater(f.x, f.screenY()-52, 'WOUAF ! WOUAF !', '#ffd166', 0.9, f.z);
       game.particles.push({ wave:true, x:f.x, z:f.z, y:16, r:6, t:0.3, col:'rgba(255,209,102,' });
       game.particles.push({ wave:true, x:f.x, z:f.z, y:16, r:18, t:0.24, col:'rgba(255,209,102,' });
       for (var bi=0; bi<game.fighters.length; bi++){
@@ -3706,7 +3805,7 @@ function doShout(f){
               bt.state === 'building' || bt.state === 'painting' || bt.state === 'spraying'){
             bt.setState('idle');
           }
-          addFloater(bt.x, bt.screenY()-48, '!', '#ff9d8a');
+          addFloater(bt.x, bt.screenY()-48, '!', '#ff9d8a', 0.9, bt.z);
         }
       }
       return;
@@ -3714,7 +3813,7 @@ function doShout(f){
     if (mode === 'vult'){
       SFX.cloche();
       f.buffT = (f.spec && f.spec.vult8) ? 8 : 5; f.buffGold = true;
-      addFloater(f.x, f.screenY()-58, 'DEUS VULT !', '#ffd166');
+      addFloater(f.x, f.screenY()-58, 'DEUS VULT !', '#ffd166', 0.9, f.z);
       addParticles(f.x, f.z, 22, 6, '#f5da6a', 55);
       game.particles.push({ wave:true, x:f.x, z:f.z, y:14, r:6, t:0.45, col:'rgba(245,218,106,' });
       game.particles.push({ wave:true, x:f.x, z:f.z, y:14, r:14, t:0.35, col:'rgba(245,218,106,' });
@@ -3723,14 +3822,14 @@ function doShout(f){
     if (mode === 'allocution'){
       SFX.allocution();
       // la presidente prend la parole : ca repousse et ca embrouille
-      addFloater(f.x, f.screenY()-58, 'ALLOCUTION !', '#7ec8ff');
+      addFloater(f.x, f.screenY()-58, 'ALLOCUTION !', '#7ec8ff', 0.9, f.z);
       for (var ai2=0; ai2<game.fighters.length; ai2++){
         var at2 = game.fighters[ai2];
         if (at2.isPlayer || at2.dead) continue;
         if (Math.abs(at2.x - f.x) < 64 && Math.abs(at2.z - f.z) < 30){
           at2.hurt(2, 95, at2.x >= f.x ? 1 : -1, false, 'player');
           at2.confusedT = (f.spec && f.spec.allocPlus) ? 2.4 : 1.2;
-          addFloater(at2.x, at2.screenY()-48, 'MAIS... ?', '#cfd4e0');
+          addFloater(at2.x, at2.screenY()-48, 'MAIS... ?', '#cfd4e0', 0.9, at2.z);
         }
       }
       game.particles.push({ wave:true, x:f.x, z:f.z, y:16, r:6, t:0.4, col:'rgba(126,200,255,' });
@@ -3739,7 +3838,7 @@ function doShout(f){
     }
     if (mode === 'conference'){
       SFX.allocution(); SFX.shout();
-      addFloater(f.x, f.screenY()-58, 'CONFERENCE DE PRESSE !', '#7ec8ff');
+      addFloater(f.x, f.screenY()-58, 'CONFERENCE DE PRESSE !', '#7ec8ff', 0.9, f.z);
       game.shake = Math.max(game.shake, 5);
       for (var cp2=0; cp2<game.fighters.length; cp2++){
         var cpt = game.fighters[cp2];
@@ -3755,14 +3854,14 @@ function doShout(f){
     }
     if (mode === 'hurlement'){
       SFX.bark(); SFX.allocution();
-      addFloater(f.x, f.screenY()-58, 'HURLEMENT GLACANT !', '#9fe8ff');
+      addFloater(f.x, f.screenY()-58, 'HURLEMENT GLACANT !', '#9fe8ff', 0.9, f.z);
       for (var hg5=0; hg5<game.fighters.length; hg5++){
         var hgt = game.fighters[hg5];
         if (hgt.isPlayer === f.isPlayer || hgt.dead) continue;
         if (Math.abs(hgt.x - f.x) < 70 && Math.abs(hgt.z - f.z) < 32 &&
             hgt.state !== 'down' && hgt.state !== 'fall' && hgt.state !== 'getup'){
           hgt.setState('hitstun'); hgt.stateT = -1.2; hgt.vx = 0;
-          addFloater(hgt.x, hgt.screenY()-48, 'FIGE !', '#9fe8ff');
+          addFloater(hgt.x, hgt.screenY()-48, 'FIGE !', '#9fe8ff', 0.9, hgt.z);
           addParticles(hgt.x, hgt.z, 22, 4, '#9fe8ff', 40);
         }
       }
@@ -3773,7 +3872,7 @@ function doShout(f){
     if (mode === 'relique'){
       SFX.priere();
       game.clouds.push({ x:f.x, z:f.z, r:26, rMax:32, t:4.0, tick:0, holy:true });
-      addFloater(f.x, f.screenY()-58, 'TERRE CONSACREE !', '#f5da6a');
+      addFloater(f.x, f.screenY()-58, 'TERRE CONSACREE !', '#f5da6a', 0.9, f.z);
       game.particles.push({ wave:true, x:f.x, z:f.z, y:8, r:8, t:0.5, col:'rgba(245,218,106,' });
       return;
     }
@@ -3781,7 +3880,7 @@ function doShout(f){
       SFX.priere();
       // le croise se recueille et referme ses plaies
       f.hp = Math.min(f.hpMax, f.hp + 16);
-      addFloater(f.x, f.screenY()-58, 'PRIERE : +16 PV', '#7ce38b');
+      addFloater(f.x, f.screenY()-58, 'PRIERE : +16 PV', '#7ce38b', 0.9, f.z);
       for (var pi5=0; pi5<8; pi5++){
         game.particles.push({ x:f.x+rnd(-6,6), z:f.z+rnd(-3,3), y:rnd(4,20),
           vx:rnd(-8,8), vy:rnd(28,52), vz:0, t:rnd(0.5,0.8), col:'#f5da6a', ember:true });
@@ -3793,12 +3892,12 @@ function doShout(f){
   if (f.leader){
     SFX.shout();
     var mrad = f.megSkin===2 ? 120 : 85;
-    addFloater(f.x, f.screenY()-56, 'TOUS ENSEMBLE !', '#7ec8ff');
+    addFloater(f.x, f.screenY()-56, 'TOUS ENSEMBLE !', '#7ec8ff', 0.9, f.z);
     if (f.megSkin === 1){
       var ppM = nearestPlayer(f);
       if (ppM && !ppM.dead && Math.abs(ppM.x-f.x) < 70 && Math.abs(ppM.z-f.z) < 26){
         ppM.hurt(1, 140, ppM.x>=f.x?1:-1, false, 'enemy');
-        addFloater(ppM.x, ppM.screenY()-50, 'REPOUSSE !', '#7ec8ff');
+        addFloater(ppM.x, ppM.screenY()-50, 'REPOUSSE !', '#7ec8ff', 0.9, ppM.z);
       }
     }
     for (var li=0; li<game.fighters.length; li++){
@@ -3815,7 +3914,7 @@ function doShout(f){
     return;
   }
   SFX.shout();
-  addFloater(f.x, f.screenY()-56, f.isPlayer ? 'RECULEZ !' : 'CAMARADES !', f.isPlayer ? '#ffd166' : '#e0b8ff');
+  addFloater(f.x, f.screenY()-56, f.isPlayer ? 'RECULEZ !' : 'CAMARADES !', f.isPlayer ? '#ffd166' : '#e0b8ff', 0.9, f.z);
   for (var i=0;i<game.fighters.length;i++){
     var t = game.fighters[i];
     if (t===f || t.dead || t.isPlayer===f.isPlayer) continue;
@@ -3831,7 +3930,7 @@ function doShout(f){
 
 /* ---------------- Objets ramassables ---------------- */
 var ITEM_ELEC = { taser: true };   // les outils a attribut electrique
-var ITEM_LABEL = { piece:'Piece', matraque:'Matraque', bouteille:'Bouteille', grenade:'Grenade lacrymo', trousse:'Trousse de soin', canette:'Canette energisante', pancarte:'Pancarte', taser:'Taser', extincteur:'Extincteur', cafe:'Cafe serre', casque:'Casque de chantier' };
+var ITEM_LABEL = { trott:'Trottinette electrique', piece:'Piece', matraque:'Matraque', bouteille:'Bouteille', grenade:'Grenade lacrymo', trousse:'Trousse de soin', canette:'Canette energisante', pancarte:'Pancarte', taser:'Taser', extincteur:'Extincteur', cafe:'Cafe serre', casque:'Casque de chantier' };
 
 function spawnItem(type, x, z, dropY, uses){
   game.items.push({
@@ -3855,7 +3954,7 @@ function nearestItem(x, z, rx, rz){
 }
 
 function randomDrop(){
-  var pool = ['matraque','bouteille','grenade','bouteille','trousse','canette','matraque','pancarte','taser','extincteur','cafe','casque'];
+  var pool = ['matraque','bouteille','grenade','bouteille','trousse','canette','matraque','pancarte','taser','extincteur','cafe','casque','trott'];
   var type = pool[irnd(0,pool.length-1)];
   var x = clamp(game.camX + rnd(60, W-60), 30, MAP_W-30);
   spawnItem(type, x, rnd(Z_MIN+8, Z_MAX-8), 220);
@@ -3920,7 +4019,7 @@ function updateProjectiles(dt){
             (p.type==='motte' || p.type==='bouteille' || p.type==='brique')){
           if (t.charId === 'crs' && game.loadout.bouclier === 2){
             p.vx = -p.vx * 0.9; p.vy = Math.max(p.vy, 60); p.owner = t;
-            addFloater(t.x, t.screenY()-54, 'RENVOYE !', '#7ec8ff');
+            addFloater(t.x, t.screenY()-54, 'RENVOYE !', '#7ec8ff', 0.9, t.z);
           } else {
             p.parried = true;
             addParticles(p.x, p.z, Math.max(2, p.y), 6, '#cfe8ff', 60);
@@ -3938,11 +4037,11 @@ function updateProjectiles(dt){
           var wasG = t.state === 'guard';
           t.hurt(bsk===2 ? 18 : 14, 80, p.vx>0?1:-1, bsk!==1, p.owner.isPlayer?'player':'enemy');
           if (t.isPlayer){
-            if (bsk===1 && t.state==='hitstun'){ t.stateT = -0.45; addFloater(t.x, t.screenY()-50, 'ETOURDI !', '#ffd166'); }
-            if (bsk===2){ t.mp = Math.max(0, t.mp-15); addFloater(t.x, t.screenY()-58, '-MORAL', '#ffd166'); }
+            if (bsk===1 && t.state==='hitstun'){ t.stateT = -0.45; addFloater(t.x, t.screenY()-50, 'ETOURDI !', '#ffd166', 0.9, t.z); }
+            if (bsk===2){ t.mp = Math.max(0, t.mp-15); addFloater(t.x, t.screenY()-58, '-MORAL', '#ffd166', 0.9, t.z); }
             if (wasG && Math.random() < 0.55 && game.loadout.bouclier !== 1 && t.charId === 'crs'){
               t.crackT = 4;
-              addFloater(t.x, t.screenY()-64, 'BOUCLIER FISSURE !', '#ff9d8a');
+              addFloater(t.x, t.screenY()-64, 'BOUCLIER FISSURE !', '#ff9d8a', 0.9, t.z);
               SFX.block();
             }
           }
@@ -3956,13 +4055,13 @@ function updateProjectiles(dt){
             t.zapT = 0.5;
             addParticles(t.x, t.z, 8, 16, '#7ec8ff', 80);
           }
-          addFloater(t.x, t.screenY()-52, 'A TERRE !', '#ffd166');
+          addFloater(t.x, t.screenY()-52, 'A TERRE !', '#ffd166', 0.9, t.z);
         } else if (p.type==='crochet'){
           var ferre = t.hurt(8, 0, p.vx>0?1:-1, false, 'enemy');
           if (ferre && !t.dead){
             t.hookedT = 0.55;
             t.hookedBy = p.owner;
-            addFloater(t.x, t.screenY()-54, 'FERRE !', '#ffd166');
+            addFloater(t.x, t.screenY()-54, 'FERRE !', '#ffd166', 0.9, t.z);
           }
         } else if (p.type==='croix'){
           t.hurt(12, 90, p.vx>0?1:-1, false, 'player');
@@ -3973,9 +4072,9 @@ function updateProjectiles(dt){
           t.confusedT = 1.6;
           if (p.vise && p.owner.isPlayer && !t.isPlayer){
             t.markedT = Math.max(t.markedT || 0, 2.5);
-            addFloater(t.x, t.screenY()-56, 'VISE PAR DECRET', '#ffd166');
+            addFloater(t.x, t.screenY()-56, 'VISE PAR DECRET', '#ffd166', 0.9, t.z);
           } else {
-            addFloater(t.x, t.screenY()-48, 'PROMESSES...', '#cfd4e0');
+            addFloater(t.x, t.screenY()-48, 'PROMESSES...', '#cfd4e0', 0.9, t.z);
           }
         }
         break;
@@ -4106,7 +4205,7 @@ function startWave(n){
     if (!wj0 || wj0.dead) continue;
     if (game.lois.prime){
       wj0.hp = Math.min(wj0.hpMax, wj0.hp + 12);
-      addFloater(wj0.x, wj0.screenY() - 58, 'PRIME DE RISQUE +12', '#63d68f');
+      addFloater(wj0.x, wj0.screenY() - 58, 'PRIME DE RISQUE +12', '#63d68f', 0.9, wj0.z);
     }
   }
   // les emplettes du marchand arrivent
@@ -4117,7 +4216,7 @@ function startWave(n){
         for (var cj0 = 0; cj0 < 2; cj0++){
           if (wpl0[cj0] && !wpl0[cj0].dead) wpl0[cj0].mp = wpl0[cj0].mpMax;
         }
-        addFloater(game.player.x, game.player.screenY() - 66, 'CAFE DU COMMISSARIAT !', '#c97a2e');
+        addFloater(game.player.x, game.player.screenY() - 66, 'CAFE DU COMMISSARIAT !', '#c97a2e', 0.9, game.player.z);
       } else {
         spawnItem(ty0, clamp(game.player.x + 16 + pa0 * 14, 20, MAP_W - 20), clamp(game.player.z + 6, Z_MIN, Z_MAX), 30);
       }
@@ -4444,7 +4543,7 @@ function spawnPlayer2(midGame){
   game.player2 = q;
   game.fighters.push(q);
   if (midGame){
-    addFloater(q.x, q.screenY()-58, 'JOUEUR 2 REJOINT !', '#7ec8ff');
+    addFloater(q.x, q.screenY()-58, 'JOUEUR 2 REJOINT !', '#7ec8ff', 0.9, q.z);
     addParticles(q.x, q.z, 20, 10, '#7ec8ff', 60);
     SFX.heal();
   }
@@ -4501,7 +4600,7 @@ function applyUpgrade(p, id){
   else if (id === 'combo') game.comboWin = (game.comboWin || 1.6) + 0.6;
   else { if (!p.spec) p.spec = {}; p.spec[id] = true; }
   p.upCount = (p.upCount || 0) + 1;
-  addFloater(p.x, p.screenY()-60, 'AMELIORATION !', '#7ce38b');
+  addFloater(p.x, p.screenY()-60, 'AMELIORATION !', '#7ce38b', 0.9, p.z);
   addParticles(p.x, p.z, 20, 8, '#7ce38b', 60);
 }
 
@@ -4789,11 +4888,11 @@ function tryPower(p){
   if (p.charId === 'crs'){
     p.chargeRepT = 3;
     p.invulnT = Math.max(p.invulnT, 3);
-    addFloater(p.x, p.screenY() - 66, 'CHARGE REPUBLICAINE !', '#7ec8ff');
+    addFloater(p.x, p.screenY() - 66, 'CHARGE REPUBLICAINE !', '#7ec8ff', 0.9, p.z);
     noiseBurst(0.22, 700, 0.09, 'lowpass');
     beep(95, 0.25, 'sawtooth', 0.07, -35);
   } else if (p.charId === 'ministre'){
-    addFloater(p.x, p.screenY() - 66, '49.3 GEANT !', '#ffd166');
+    addFloater(p.x, p.screenY() - 66, '49.3 GEANT !', '#ffd166', 0.9, p.z);
     for (var i = 0; i < game.fighters.length; i++){
       var t = game.fighters[i];
       if (t.isPlayer || t.dead || t.kind === 'journaliste' || t.kind === 'clochard' || t.kind === 'pacifiste' || t.state === 'cuffed' || t.state === 'flee') continue;
@@ -4807,7 +4906,7 @@ function tryPower(p){
   } else if (p.charId === 'croise'){
     p.holyT = 6;
     p.hp = Math.min(p.hpMax, p.hp + 30);
-    addFloater(p.x, p.screenY() - 66, 'DEUS VULT !', '#ffd166');
+    addFloater(p.x, p.screenY() - 66, 'DEUS VULT !', '#ffd166', 0.9, p.z);
     game.particles.push({ star:true, x:p.x, z:p.z, y:16, t:0.35, r:12, col:'#ffd166' });
     SFX.heal();
   } else if (p.charId === 'k9'){
@@ -4816,7 +4915,7 @@ function tryPower(p){
       game.meute.push({ x: p.x - p.dir * (12 + m7 * 10), z: clamp(p.z + (m7 === 0 ? -8 : 8), Z_MIN, Z_MAX),
                         t: 8, biteCd: 0.3 + m7 * 0.3, dir: p.dir });
     }
-    addFloater(p.x, p.screenY() - 66, 'LA MEUTE !', '#8fd3f4');
+    addFloater(p.x, p.screenY() - 66, 'LA MEUTE !', '#8fd3f4', 0.9, p.z);
     SFX.bite();
   }
   return true;
@@ -4905,7 +5004,7 @@ function startHorde(){
     }
   };
   soigne(game.player); soigne(game.player2);
-  addFloater(game.player.x, game.player.screenY() - 70, 'LA HORDE ARRIVE...', '#ff8a5c');
+  addFloater(game.player.x, game.player.screenY() - 70, 'LA HORDE ARRIVE...', '#ff8a5c', 0.9, game.player.z);
   SFX.wave();
   startWave(game.wave + 1);
 }
@@ -4935,7 +5034,7 @@ function confirmUpgrade(){
     if (!game.horde && game.pendingWave > ZONES[game.zone].wEnd && game.zone < ZONES.length - 1){
       game.goMode = true;
       var gpl = game.player && !game.player.dead ? game.player : game.player2;
-      if (gpl) addFloater(gpl.x, gpl.screenY()-58, 'ZONE NETTOYEE \u2014 EN AVANT !', '#7ce38b');
+      if (gpl) addFloater(gpl.x, gpl.screenY()-58, 'ZONE NETTOYEE \u2014 EN AVANT !', '#7ce38b', 0.9, gpl.z);
       SFX.wave();
     } else {
       startWave(game.pendingWave);
@@ -5531,7 +5630,7 @@ function update(dt){
               gf9.dir = af9.x >= gf9.x ? 1 : -1;  // tous tournes vers l orateur
             }
             game.agTotal = (game.agTotal||0) + 1;
-            addFloater(af9.x, af9.screenY() - 62, 'AG SPONTANEE !', '#ffd166', 1.9);
+            addFloater(af9.x, af9.screenY() - 62, 'AG SPONTANEE !', '#ffd166', 1.9, af9.z);
             beep(523, 0.09, 'triangle', 0.05);
             beep(659, 0.14, 'triangle', 0.05, 0, 0.1);
           } else {
@@ -5544,7 +5643,7 @@ function update(dt){
               addParticles(cf9b.x, cf9b.z, 12, 8, '#ff8a5c', 50);
             }
             game.chantsTotal = (game.chantsTotal||0) + 1;
-            addFloater(af9.x, af9.screenY() - 62, chant9, '#ff8a5c', 2.2);
+            addFloater(af9.x, af9.screenY() - 62, chant9, '#ff8a5c', 2.2, af9.z);
             beep(196, 0.1, 'square', 0.05);
             beep(262, 0.1, 'square', 0.05, 0, 0.12);
             beep(196, 0.16, 'square', 0.05, 0, 0.24);
@@ -5572,7 +5671,7 @@ function update(dt){
           if (pp8.vx > 0) pp8.vx = 0;
           if (pp8.cordonT <= 0){
             pp8.cordonT = 2.4;
-            addFloater(pp8.x, pp8.screenY() - 58, 'ON NE PASSE PAS !', '#7ce38b', 1.3);
+            addFloater(pp8.x, pp8.screenY() - 58, 'ON NE PASSE PAS !', '#7ce38b', 1.3, pp8.z);
           }
         }
       }
@@ -5689,7 +5788,7 @@ function update(dt){
       if (hlf.isPlayer || hlf.dead) continue;
       if (Math.abs(hlf.x - game.spotX) < 26){
         if (!(hlf.litT > 0)){
-          addFloater(hlf.x, hlf.screenY()-50, 'DESIGNE', '#e8f2ff');
+          addFloater(hlf.x, hlf.screenY()-50, 'DESIGNE', '#e8f2ff', 0.9, hlf.z);
         }
         hlf.litT = 0.18;
       }
@@ -5771,7 +5870,7 @@ function update(dt){
       if (!plG || plG.dead) continue;
       if (gfU.qT <= 0 && Math.abs(gfU.x - plG.x) < 70){
         gfU.qT = 1.6;
-        addFloater(plG.x, plG.screenY()-56, '?', '#9fb2d8');
+        addFloater(plG.x, plG.screenY()-56, '?', '#9fb2d8', 0.9, plG.z);
       }
     }
     if (gfU.t <= 0) game.graffitis.splice(gr,1);
@@ -8127,12 +8226,44 @@ function drawBodyTheoricien(g, f, o){
   drawArmS(g, f, o.armF, 1);
 }
 
+function drawTrottinette(g, f){
+  var roule5 = f.state === 'walk' || f.state === 'run';
+  var spin5 = roule5 ? f.animT * 14 : 0;
+  // le plateau
+  g.fillStyle = '#1b1e26';
+  rrPath(g, -7.4, -3.2, 13, 2.2, 1); g.fill();
+  g.fillStyle = '#39445f';
+  g.fillRect(-6.6, -3, 11.4, 0.7);
+  // les roues (rayon qui tourne)
+  for (var rw5 = 0; rw5 < 2; rw5++){
+    var wx5 = rw5 === 0 ? -6.6 : 6.8;
+    g.fillStyle = '#0c0e12';
+    g.beginPath(); g.arc(wx5, -1.4, 2, 0, TAU); g.fill();
+    g.fillStyle = '#4a5568';
+    g.beginPath(); g.arc(wx5, -1.4, 0.8, 0, TAU); g.fill();
+    g.strokeStyle = '#6a7488'; g.lineWidth = 0.5;
+    g.beginPath();
+    g.moveTo(wx5 + Math.cos(spin5) * 1.7, -1.4 + Math.sin(spin5) * 1.7);
+    g.lineTo(wx5 - Math.cos(spin5) * 1.7, -1.4 - Math.sin(spin5) * 1.7);
+    g.stroke();
+  }
+  // la potence et le guidon
+  g.strokeStyle = '#39445f'; g.lineWidth = 1.5; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(6.8, -2.8); g.lineTo(9.4, -20.6); g.stroke();
+  g.strokeStyle = '#1b1e26'; g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(7.8, -21); g.lineTo(11.2, -20.2); g.stroke();
+  // le phare vert du libre-service
+  g.fillStyle = '#63d68f';
+  g.beginPath(); g.arc(9.8, -18.6, 0.9, 0, TAU); g.fill();
+}
+
 function drawBody(g, f){
   var o = computePose(f);
   g.save();
   if (o.lying){ g.rotate(-Math.PI/2); g.translate(6, 0); }
   else { g.rotate(o.lean*0.03); }
   g.translate(0, -o.bob);
+  if (f.isPlayer && f.trottT > 0 && !o.lying) drawTrottinette(g, f);
   if (f.kind==='crs') drawBodyCRS(g, f, o);
   else if (f.kind==='ministre') drawBodyMinistre(g, f, o);
   else if (f.kind==='k9') drawBodyK9(g, f, o);
@@ -8171,12 +8302,14 @@ function drawBody(g, f){
 }
 
 function drawFighter(g, f){
-  var sx = f.x - game.camX;
+  var sx = projX(f.x, f.z);
   var syFoot = f.footSY();
-  if (sx < -34 || sx > W+34) return;
-  drawShadow(g, sx, syFoot, f.big ? 10 : 8);
+  if (sx < -60 || sx > W+60) return;
+  var ds6 = depthScale(f.z);
+  drawShadow(g, sx, syFoot, (f.big ? 10 : 8) * ds6);
   g.save();
   g.translate(sx, syFoot - f.y);
+  g.scale(ds6, ds6);                               // la perspective prend les combattants
   if (f.dir < 0) g.scale(-1, 1);
   if (!f.isPlayer && f.scaleV) g.scale(1, f.scaleV);
   if (f.buffT > 0){
@@ -8321,14 +8454,33 @@ function drawItemPiece(g, sx, sy, t){
 }
 
 function drawItem(g, it){
-  if (it.type === 'piece'){ drawItemPiece(g, it.x - game.camX, GROUND_SY + it.z - it.y, game.time + it.x); drawShadow(g, it.x - game.camX, GROUND_SY + it.z, 2); return; }
-  var sx = it.x - game.camX;
-  var sy = GROUND_SY + it.z - it.y;
-  if (sx<-24 || sx>W+24) return;
-  if (!it.falling) drawShadow(g, sx, GROUND_SY+it.z, 5);
+  if (it.type === 'piece'){
+    var dp6 = depthScale(it.z), psx6 = projX(it.x, it.z), psy6 = groundY(it.z) - it.y;
+    g.save(); g.translate(psx6, psy6); g.scale(dp6, dp6); g.translate(-psx6, -psy6);
+    drawItemPiece(g, psx6, psy6, game.time + it.x); g.restore();
+    drawShadow(g, psx6, groundY(it.z), 2 * dp6); return;
+  }
+  var sx = projX(it.x, it.z);
+  var sy = groundY(it.z) - it.y;
+  if (sx<-40 || sx>W+40) return;
+  var di6 = depthScale(it.z);
+  if (!it.falling) drawShadow(g, sx, groundY(it.z), 5 * di6);
   var bob = it.falling ? 0 : Math.sin(it.bobT*3)*1.3;
   g.save(); g.translate(sx, sy - 3 + bob);
+  g.scale(di6, di6);
   switch(it.type){
+    case 'trott':
+      g.save(); g.scale(0.8, 0.8);
+      g.fillStyle='#1b1e26'; rrPath(g, -6, -2.4, 11, 2, 1); g.fill();
+      g.fillStyle='#0c0e12';
+      g.beginPath(); g.arc(-5.4, -0.8, 1.7, 0, TAU); g.fill();
+      g.beginPath(); g.arc(5.6, -0.8, 1.7, 0, TAU); g.fill();
+      g.strokeStyle='#39445f'; g.lineWidth=1.3; g.lineCap='round';
+      g.beginPath(); g.moveTo(5.6, -2); g.lineTo(7.6, -14); g.stroke();
+      g.strokeStyle='#1b1e26'; g.lineWidth=1;
+      g.beginPath(); g.moveTo(6.2, -14.3); g.lineTo(9, -13.7); g.stroke();
+      g.fillStyle='#63d68f'; g.beginPath(); g.arc(7.9, -12.4, 0.8, 0, TAU); g.fill();
+      g.restore(); break;
     case 'matraque':
       g.save(); g.rotate(-0.5);
       g.strokeStyle='#15161c'; g.lineWidth=3; g.lineCap='round';
@@ -8401,9 +8553,9 @@ function drawItem(g, it){
 }
 
 function drawBarrier(g, b){
-  var sx = b.x - game.camX;
-  if (sx < -30 || sx > W+30) return;
-  var sy = GROUND_SY + b.z;
+  var sx = projX(b.x, b.z);
+  if (sx < -60 || sx > W+60) return;
+  var sy = groundY(b.z);
   drawShadow(g, sx, sy, 9);
   tire(g, sx-5, sy-4, 6.5);
   tire(g, sx+5, sy-3, 7);
@@ -8418,7 +8570,7 @@ function drawBarrier(g, b){
 }
 
 function drawCroix(g, p){
-  var sx = p.x - game.camX, sy = GROUND_SY + p.z - p.y;
+  var sx = projX(p.x, p.z), sy = groundY(p.z) - p.y;
   g.save();
   g.translate(sx, sy);
   g.rotate(game.time * 9 * (p.vx > 0 ? 1 : -1));
@@ -8430,7 +8582,7 @@ function drawCroix(g, p){
   g.restore();
 }
 function drawWouf(g, p){
-  var sx = p.x - game.camX, sy = GROUND_SY + p.z;
+  var sx = projX(p.x, p.z), sy = groundY(p.z);
   g.save();
   g.globalAlpha = clamp(p.vieT / 0.62, 0, 1) * 0.8;
   for (var w6 = 0; w6 < 3; w6++){
@@ -8465,8 +8617,8 @@ function drawProjectile(g, p){
   if (p.type === 'onde'){ drawOnde(g, p); return; }
   if (p.type === 'croix'){ drawCroix(g, p); return; }
   if (p.type === 'wouf'){ drawWouf(g, p); return; }
-  var sx = p.x-game.camX, sy = GROUND_SY+p.z-p.y;
-  drawShadow(g, sx, GROUND_SY+p.z, 3);
+  var sx = projX(p.x, p.z), sy = groundY(p.z)-p.y;
+  drawShadow(g, sx, groundY(p.z), 3 * depthScale(p.z));
   g.save(); g.translate(sx,sy); g.rotate(p.spin);
   if (p.type==='molotov'){
     var mk = p.skin || 0;
@@ -9751,7 +9903,7 @@ function drawFloaters(g){
   for (var i=0;i<game.floaters.length;i++){
     var f = game.floaters[i];
     var a = clamp(f.t/0.4, 0, 1);
-    var fx = f.x-game.camX;
+    var fx = f.z === undefined ? f.x - game.camX : projX(f.x, f.z);
     g.globalAlpha = a;
     g.fillStyle = 'rgba(0,0,0,0.55)';
     g.fillText(f.txt, fx+0.7, f.sy+0.7);
@@ -10240,6 +10392,31 @@ function draw(){
 
   drawBackground(g);
 
+  // 2.5D : la chaussee s assombrit vers le fond de la rue
+  var gr6 = g.createLinearGradient(0, GROUND_SY - 4, 0, GROUND_SY + Z_MAX + 10);
+  gr6.addColorStop(0, 'rgba(6,8,14,0.26)');
+  gr6.addColorStop(0.55, 'rgba(6,8,14,0.09)');
+  gr6.addColorStop(1, 'rgba(6,8,14,0)');
+  g.fillStyle = gr6;
+  g.fillRect(0, GROUND_SY - 4, W, Z_MAX + 14);
+
+  // le marquage au sol fantome : des pointilles monde qui fuient vers le point de fuite
+  g.strokeStyle = 'rgba(160,170,190,0.16)'; g.lineCap = 'butt';
+  for (var lz7 = 0; lz7 < 2; lz7++){
+    var zz7 = lz7 ? 62 : 26;
+    var yy7 = groundY(zz7);
+    var xf7 = depthScale(zz7) / XF_REF;
+    g.lineWidth = 2.0 * depthScale(zz7);
+    var pas7 = 46, demi7 = (W/2) / xf7;
+    var w07 = game.camX + W/2 - demi7 - pas7, w17 = game.camX + W/2 + demi7 + pas7;
+    g.beginPath();
+    for (var wx7 = Math.floor(w07/pas7)*pas7; wx7 < w17; wx7 += pas7){
+      g.moveTo(projX(wx7, zz7), yy7);
+      g.lineTo(projX(wx7 + 18, zz7), yy7);
+    }
+    g.stroke();
+  }
+
   var list = [];
   var i;
   for (i=0;i<game.items.length;i++) list.push({ z: game.items[i].z, k:'item', o: game.items[i] });
@@ -10251,44 +10428,54 @@ function draw(){
     var e = list[i];
     if (e.k==='item') drawItem(g, e.o);
     else if (e.k==='fig') drawFighter(g, e.o);
-    else if (e.k==='bar') drawBarrier(g, e.o);
-    else drawProjectile(g, e.o);
+    else if (e.k==='bar'){
+      var db6 = depthScale(e.o.z), bx6 = projX(e.o.x, e.o.z), by6 = groundY(e.o.z);
+      g.save(); g.translate(bx6, by6); g.scale(db6, db6); g.translate(-bx6, -by6);
+      drawBarrier(g, e.o); g.restore();
+    }
+    else if (e.o.type === 'onde'){ drawProjectile(g, e.o); }
+    else {
+      var dq6 = depthScale(e.o.z), qx6 = projX(e.o.x, e.o.z), qy6 = groundY(e.o.z) - (e.o.y || 0);
+      g.save(); g.translate(qx6, qy6); g.scale(dq6, dq6); g.translate(-qx6, -qy6);
+      drawProjectile(g, e.o); g.restore();
+    }
   }
 
   // nuages de gaz (bouffees en degrade)
   for (i=0;i<game.clouds.length;i++){
     var cl = game.clouds[i];
+    var dcl = depthScale(cl.z);
     if (cl.fire){
-      var fcx = cl.x-game.camX, fcy = GROUND_SY+cl.z;
+      var fcx = projX(cl.x, cl.z), fcy = groundY(cl.z);
       var fint = Math.min(1, cl.t/1.2);
       g.fillStyle='rgba(24,24,30,' + (0.5*fint).toFixed(2) + ')';
-      g.beginPath(); g.ellipse(fcx, fcy+1, 17, 5, 0, 0, TAU); g.fill();
+      g.beginPath(); g.ellipse(fcx, fcy+1, 17*dcl, 5*dcl, 0, 0, TAU); g.fill();
       if (cl.blue){
         g.save(); g.globalCompositeOperation='lighter';
         var bga = 0.09 + 0.045*Math.sin(game.time*9 + cl.x);
-        var bgg = g.createRadialGradient(fcx, fcy-6, 3, fcx, fcy-6, 44);
+        var bgg = g.createRadialGradient(fcx, fcy-6, 3, fcx, fcy-6, 44*dcl);
         bgg.addColorStop(0, 'rgba(90,150,255,' + bga.toFixed(3) + ')');
         bgg.addColorStop(1, 'rgba(90,150,255,0)');
-        g.fillStyle = bgg; g.beginPath(); g.arc(fcx, fcy-6, 44, 0, TAU); g.fill();
+        g.fillStyle = bgg; g.beginPath(); g.arc(fcx, fcy-6, 44*dcl, 0, TAU); g.fill();
         g.restore();
       } else {
-        drawFireGlow(g, fcx, fcy-6, 44, cl.x);
+        drawFireGlow(g, fcx, fcy-6, 44*dcl, cl.x);
       }
-      drawFlames(g, fcx-9, fcy, 0.75*fint, cl.x, cl.blue);
-      drawFlames(g, fcx+1, fcy-2, fint, cl.x+2, cl.blue);
-      drawFlames(g, fcx+9, fcy+1, 0.6*fint, cl.x+4, cl.blue);
+      drawFlames(g, fcx-9*dcl, fcy, 0.75*fint*dcl, cl.x, cl.blue);
+      drawFlames(g, fcx+1*dcl, fcy-2*dcl, fint*dcl, cl.x+2, cl.blue);
+      drawFlames(g, fcx+9*dcl, fcy+1*dcl, 0.6*fint*dcl, cl.x+4, cl.blue);
       continue;
     }
     var gasCol = cl.holy ? '235,210,130' : (cl.snow ? '238,243,248' : (cl.vil ? '150,172,78' : (cl.skin === 1 ? '234,120,104' : (cl.skin === 2 ? '224,229,238' : '178,214,150'))));
     var alpha = (cl.skin === 2 || cl.snow ? 0.30 : (cl.holy ? 0.22 : 0.16))*Math.min(1, cl.t);
-    var cx = cl.x-game.camX, cy = GROUND_SY+cl.z-8;
+    var cx = projX(cl.x, cl.z), cy = groundY(cl.z)-8*dcl;
     for (var pj=0; pj<3; pj++){
-      var ox = (pj-1)*cl.r*0.45, oy = (pj%2 ? -3 : 3);
-      var rg = g.createRadialGradient(cx+ox, cy+oy, 2, cx+ox, cy+oy, cl.r*0.75);
+      var ox = (pj-1)*cl.r*0.45*dcl, oy = (pj%2 ? -3 : 3)*dcl;
+      var rg = g.createRadialGradient(cx+ox, cy+oy, 2, cx+ox, cy+oy, cl.r*0.75*dcl);
       rg.addColorStop(0, 'rgba('+gasCol+','+alpha+')');
       rg.addColorStop(1, 'rgba('+gasCol+',0)');
       g.fillStyle = rg;
-      g.beginPath(); g.ellipse(cx+ox, cy+oy, cl.r*0.75, cl.r*0.42, 0, 0, TAU); g.fill();
+      g.beginPath(); g.ellipse(cx+ox, cy+oy, cl.r*0.75*dcl, cl.r*0.42*dcl, 0, 0, TAU); g.fill();
     }
   }
 
@@ -10298,9 +10485,9 @@ function draw(){
     if (q.wave){
       g.strokeStyle = q.col + clamp(q.t,0,1)*0.8 + ')';
       g.lineWidth = 2;
-      g.beginPath(); g.ellipse(q.x-game.camX, GROUND_SY+q.z-q.y, q.r, q.r*0.45, 0, 0, TAU); g.stroke();
+      g.beginPath(); g.ellipse(projX(q.x, q.z), groundY(q.z)-q.y, q.r, q.r*0.45, 0, 0, TAU); g.stroke();
     } else {
-      var qx = q.x-game.camX, qy = GROUND_SY+q.z-q.y;
+      var qx = projX(q.x, q.z), qy = groundY(q.z)-q.y;
       g.globalAlpha = clamp(q.t*2.4, 0, 1);
       if (q.ember){
         g.save(); g.globalCompositeOperation='lighter';
@@ -11423,6 +11610,12 @@ window.__crs = {
   AMBIANTS: AMBIANTS,
   DIFFS: DIFFS,
   WAVE_EVENTS: WAVE_EVENTS,
+  FINISHERS: FINISHERS,
+  ITEM_LABEL: ITEM_LABEL,
+  depthScale: depthScale,
+  projX: projX,
+  groundY: groundY,
+  draw: draw,
   settings: settings,
   BESTIAIRE_ORDER: BESTIAIRE_ORDER,
   BESTIAIRE_DESC: BESTIAIRE_DESC,
