@@ -2056,7 +2056,7 @@ Fighter.prototype.update = function(dt){
         game.particles.push({ star:true, x:this.x + this.dir*14, z:this.z, y:20, t:0.09, r:6, col:'#ffb347' });
         game.particles.push({ x:this.x + this.dir*5, z:this.z, y:17,
           vx:-this.dir*rnd(28,48), vy:rnd(45,70), vz:0, t:0.5, col:'#e8c22e' });
-        SFX.lbdShot();
+        if (!(this.isPlayer && sfxbPlay('lbd', 0.7))) SFX.lbdShot();
         var lgm = this.up ? this.up.sigMul : 1;
         if (lobbing){ /* la cloche a son propre cooldown (sig2Cd) */ }
         else if (game.loadout.lbd === 2){
@@ -4129,6 +4129,7 @@ function updateProjectiles(dt){
         }
         hit = true;
         if (p.type==='bouteille'){
+          game._coupSfx = 'bouteille';
           t.hurt(15, 70, p.vx>0?1:-1, true, p.owner.isPlayer?'player':'enemy');
         } else if (p.type==='motte'){
           t.hurt(7, 45, p.vx>0?1:-1, false, p.owner.isPlayer?'player':'enemy');
@@ -4150,7 +4151,6 @@ function updateProjectiles(dt){
         } else if (p.type==='lbd'){
           var lDmg9 = (p.owner.isPlayer && game.shop.lbdplus) ? 15 : 10;
           var lKb9 = (p.owner.isPlayer && game.shop.lbdplus) ? 140 : 70;
-          if (p.owner.isPlayer && !t.isPlayer) game._coupSfx = 'lbd';
           t.hurt(lDmg9, lKb9, p.vx>0?1:-1, true, p.owner.isPlayer ? 'player' : 'enemy');
           if (p.owner.isPlayer && game.shop.elec && !t.isPlayer){
             t.zapT = 0.5;
