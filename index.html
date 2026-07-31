@@ -676,6 +676,13 @@ document.addEventListener('keydown', function(e){
     else if (e.key === 'Enter'){ villeActiver(); }
     e.preventDefault(); return;
   }
+  if (game.state === 'destination'){
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft'){ game.destSel = (game.destSel + ZONES.length - 1) % ZONES.length; }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowRight'){ game.destSel = (game.destSel + 1) % ZONES.length; }
+    else if (e.key === 'Enter'){ destinationPartir(); }
+    else if (e.key === 'Escape'){ game.state = 'ville'; SFX.pickup(); }
+    e.preventDefault(); return;
+  }
   if (game.state === 'lieu'){
     var estShop9 = !!game.lieu;
     if (estShop9){
@@ -4411,7 +4418,7 @@ function startWave(n){
   }
   if (game.zone <= 2 && Math.random() < 0.4 && !game.fighters.some(function(qf){ return qf.kind === 'bourgeoise' && !qf.dead; })){
     var bg8 = spawnEnemy('bourgeoise');
-    bg8.x = clamp(rnd(game.camX + 60, game.camX + W - 60), 60, MAP_W - 60);
+    bg8.x = placerBalcon();
     bg8.z = Z_MIN + 2; bg8.y = 42; bg8.dir = -1;
   }
   if (game.zone >= 1 && Math.random() < 0.45 && !game.fighters.some(function(mf){ return mf.kind === 'medic' && !mf.dead; })){
@@ -4486,6 +4493,64 @@ function startWave(n){
   game.spawnT = 0.4;
   game.waveBannerT = 1.8;
   SFX.wave();
+}
+
+// ============================================================================
+//  FACADE : ou peut-on accrocher un balcon ?
+//  La rue commercante est decoupee en segments de 110 px :
+//    s % 3 === 1  rideau de fer      s % 3 === 2  vitrine condamnee
+//    s % 3 === 0  brique nue         <- le seul pan ou un balcon tient debout
+//  La bourgeoise amene sa propre fenetre (36 px), d ou la marge.
+// ============================================================================
+var FACADE_SEG  = 110;
+var FACADE_PER  = FACADE_SEG * 3;   // periode : un pan de brique tous les 330 px
+var BALCON_DEMI = 20;
+
+// la rue aux commerces est le decor par defaut (les zones 1 a 5 ont le leur)
+function rueCommercante(){ return !(game.zone >= 1 && game.zone <= 5); }
+
+// vrai si la facade entiere du balcon tient sur un pan de brique nue
+function surBriqueNue(x, marge){
+  var m = (marge === undefined) ? BALCON_DEMI : marge;
+  var a = Math.floor((x - m) / FACADE_SEG);
+  var b = Math.floor((x + m) / FACADE_SEG);
+  return a === b && ((a % 3) + 3) % 3 === 0;
+}
+
+// centre du pan de brique le plus proche de x, ou null si la carte n en offre pas
+function briqueProche(x){
+  var k = Math.round(x / FACADE_PER), best = null, bd = Infinity;
+  for (var i = k - 2; i <= k + 2; i++){
+    var c = i * FACADE_PER + FACADE_SEG / 2;
+    if (c < 60 || c > MAP_W - 60) continue;
+    var d = Math.abs(c - x);
+    if (d < bd){ bd = d; best = c; }
+  }
+  return best;
+}
+
+// abscisse de spawn : un pan de brique dans le champ, sinon le pan le plus proche
+function placerBalcon(){
+  var lo = clamp(game.camX + 60, 60, MAP_W - 60);
+  var hi = clamp(game.camX + W - 60, 60, MAP_W - 60);
+  if (hi < lo){ var tmp = lo; lo = hi; hi = tmp; }
+  if (!rueCommercante()) return rnd(lo, hi);      // pas de mur de brique ici
+
+  var libres = [];
+  var k0 = Math.floor((lo - FACADE_PER) / FACADE_PER);
+  var k1 = Math.floor(hi / FACADE_PER) + 1;
+  for (var k = k0; k <= k1; k++){
+    var ia = Math.max(k * FACADE_PER + BALCON_DEMI, lo);
+    var ib = Math.min(k * FACADE_PER + FACADE_SEG - BALCON_DEMI, hi);
+    if (ib > ia) libres.push([ia, ib]);
+  }
+  if (libres.length){
+    var seg = libres[irnd(0, libres.length - 1)];
+    return rnd(seg[0], seg[1]);
+  }
+  // aucun pan visible : elle se poste sur le plus proche, la camera l amenera
+  var pr = briqueProche((lo + hi) / 2);
+  return (pr === null) ? (lo + hi) / 2 : pr;
 }
 
 function spawnEnemy(kind){
@@ -4986,17 +5051,51 @@ function ouvrirVille(){
   game.state = 'ville';
   game.villeSel = 4;   // la manif pre-selectionnee : Entree = on y va
 }
+// zone naturelle d une vague : celle dont la fourchette la contient
+function zonePourVague(n){
+  for (var z = 0; z < ZONES.length; z++) if (n <= ZONES[z].wEnd) return z;
+  return ZONES.length - 1;
+}
+// premiere vague d une zone
+function vagueDeZone(z){ return z <= 0 ? 1 : ZONES[z - 1].wEnd + 1; }
+
 function villeActiver(){
   var sp = VILLE_SPOTS[game.villeSel];
   if (sp.id === 'manif'){
-    game.state = 'play';
-    game.fadeT = 0.5; game.fadeSwapped = true;   // fondu d entree sur le nouveau tableau
-    startWave(game.villeWave || (game.wave + 1));
+    // choix de la destination : l itineraire prevu est pre-selectionne,
+    // Entree x2 = comportement d avant. Les autres zones servent aux tests.
+    game.state = 'destination';
+    game.destSel = zonePourVague(game.villeWave || (game.wave + 1));
   } else {
     game.lieu = sp;
     game.shopSel = 0;
     game.state = 'lieu';
   }
+  SFX.pickup();
+}
+
+function destinationPartir(){
+  var vaguePrevue = game.villeWave || (game.wave + 1);
+  var zonePrevue = zonePourVague(vaguePrevue);
+  if (game.destSel !== zonePrevue){
+    // saut de zone : on change de tableau, donc on solde l ancien
+    game.zone = game.destSel;
+    for (var df = game.fighters.length - 1; df >= 0; df--){
+      if (!game.fighters[df].isPlayer) game.fighters.splice(df, 1);
+    }
+    game.barriers.length = 0; game.graffitis.length = 0;
+    game.items.length = 0; game.projectiles.length = 0; game.clouds.length = 0;
+    game.meute = []; game.goMode = false;
+    var dpl = [game.player, game.player2];
+    for (var dz = 0; dz < 2; dz++){
+      if (dpl[dz] && !dpl[dz].dead){ dpl[dz].x = 26 + dz * 22; dpl[dz].setState('idle'); }
+    }
+    game.camX = 0;
+    game.villeWave = vagueDeZone(game.destSel);
+  }
+  game.state = 'play';
+  game.fadeT = 0.5; game.fadeSwapped = true;   // fondu d entree sur le nouveau tableau
+  startWave(game.villeWave || (game.wave + 1));
   SFX.pickup();
 }
 function canvasLogique(e){
@@ -5389,7 +5488,8 @@ function metDistCurve(soft){
 function metMode(){
   if (game.state === 'title' || game.state === 'scores' || game.state === 'armory' ||
       game.state === 'options' || game.state === 'charsel' ||
-      game.state === 'commissariat' || game.state === 'ville' || game.state === 'lieu' || game.state === 'guide') return 'title';
+      game.state === 'commissariat' || game.state === 'ville' || game.state === 'lieu' ||
+      game.state === 'destination' || game.state === 'guide') return 'title';
   if (game.state !== 'play' && game.state !== 'levelup' && game.state !== 'pause') return 'off';
   for (var i=0;i<game.fighters.length;i++){
     var bf = game.fighters[i];
@@ -9240,7 +9340,7 @@ function drawBackground(g){
   else if (game.zone === 5){ drawRaveBack(g, cam); }
   else {
   // commerces : rideaux de fer et vitrines (1 segment sur 3 reste en brique)
-  var SEG = 110;
+  var SEG = FACADE_SEG;
   var s0 = Math.floor((cam-SEG) / SEG);
   for (var s=s0; s <= s0+7; s++){
     if (s < 0) continue;
@@ -11669,7 +11769,56 @@ function draw(){
     g.save();
     g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 4; g.shadowOffsetY = 1;
     g.fillStyle = '#5d6a86'; g.font = '6px monospace';
-    g.fillText('FLECHES + ENTREE \u00B7 ou TOUCHER un lieu \u00B7 MANIFESTATION = tableau suivant', W/2, 254);
+    g.fillText('FLECHES + ENTREE \u00B7 ou TOUCHER un lieu \u00B7 MANIFESTATION = choisir la destination', W/2, 254);
+    g.restore();
+    g.textAlign = 'left';
+  }
+
+  if (game.state === 'destination'){
+    g.fillStyle = '#101620'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#1a2230'; g.fillRect(0, 140, W, 22);   // la grande avenue, en echo a la carte
+    g.textAlign = 'center';
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 5; g.shadowOffsetY = 2;
+    g.fillStyle = '#ffd166'; g.font = 'bold 11px monospace';
+    g.fillText('OU DEFILE-T-ON, CAPITAINE ?', W / 2, 34);
+    g.restore();
+    g.fillStyle = '#8b96ad'; g.font = '6px monospace';
+    g.fillText('LE RENSEIGNEMENT TERRITORIAL SIGNALE DES CORTEGES PARTOUT', W / 2, 48);
+
+    var vagueP9 = game.villeWave || (game.wave + 1);
+    var zoneP9 = zonePourVague(vagueP9);
+    for (var zd9 = 0; zd9 < ZONES.length; zd9++){
+      var zy9 = 74 + zd9 * 26;
+      var on9 = game.destSel === zd9;
+      var prevu9 = zd9 === zoneP9;
+      g.fillStyle = on9 ? 'rgba(255,209,102,0.14)' : 'rgba(30,38,54,0.9)';
+      rrPath(g, 70, zy9 - 11, W - 140, 22, 5); g.fill();
+      g.strokeStyle = on9 ? '#ffd166' : 'rgba(120,132,160,0.5)';
+      g.lineWidth = on9 ? 1.6 : 1;
+      rrPath(g, 70, zy9 - 11, W - 140, 22, 5); g.stroke();
+      // le numero d etape, comme une ligne de bus
+      g.fillStyle = on9 ? '#ffd166' : '#5d6a86';
+      g.beginPath(); g.arc(86, zy9, 7, 0, TAU); g.fill();
+      g.fillStyle = '#101620'; g.font = 'bold 8px monospace';
+      g.fillText(String(zd9 + 1), 86, zy9 + 3);
+      g.textAlign = 'left';
+      g.fillStyle = on9 ? '#ffd166' : '#9aa5bd';
+      g.font = on9 ? 'bold 7px monospace' : '7px monospace';
+      g.fillText(ZONES[zd9].nom, 100, zy9 + 2.5);
+      g.textAlign = 'right';
+      g.fillStyle = prevu9 ? '#7ce38b' : '#5d6a86';
+      g.font = '6px monospace';
+      var vd9 = vagueDeZone(zd9);
+      g.fillText(prevu9 ? 'ITINERAIRE PREVU \u00B7 VAGUE ' + vagueP9
+                        : 'VAGUE ' + (ZONES[zd9].wEnd >= 999 ? vd9 + '+' : vd9 + '-' + ZONES[zd9].wEnd),
+                 W - 78, zy9 + 2.5);
+      g.textAlign = 'center';
+    }
+    g.save();
+    g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 4; g.shadowOffsetY = 1;
+    g.fillStyle = '#5d6a86'; g.font = '6px monospace';
+    g.fillText('FLECHES + ENTREE \u00B7 ou TOUCHER une destination \u00B7 ECHAP = RETOUR EN VILLE', W / 2, 250);
     g.restore();
     g.textAlign = 'left';
   }
@@ -12277,6 +12426,16 @@ canvas.addEventListener('click', function(e){
         break;
       }
     }
+  } else if (game.state === 'destination'){
+    for (var dz9 = 0; dz9 < ZONES.length; dz9++){
+      var dy9 = 74 + dz9 * 26;
+      if (pt.x >= 70 && pt.x <= W - 70 && pt.y >= dy9 - 11 && pt.y <= dy9 + 11){
+        game.destSel = dz9;
+        destinationPartir();
+        break;
+      }
+    }
+    if (pt.y >= 240 && pt.y <= 262){ game.state = 'ville'; SFX.pickup(); }
   } else if (game.state === 'lieu'){
     var estShop9c = !!game.lieu;
     if (estShop9c){
@@ -12308,6 +12467,16 @@ canvas.addEventListener('click', function(e){
 window.__crs = {
   version: '1.0.0',
   game: game,
+  drawBackground: drawBackground,
+  drawFighter: drawFighter,
+  spawnEnemy: spawnEnemy,
+  GROUND_SY: GROUND_SY,
+  MAP_W: MAP_W,
+  surBriqueNue: surBriqueNue,
+  briqueProche: briqueProche,
+  placerBalcon: placerBalcon,
+  FACADE_SEG: FACADE_SEG,
+  BALCON_DEMI: BALCON_DEMI,
   spawnPaintSplats: spawnPaintSplats,
   drawPaintVisor: drawPaintVisor,
   paintBlob: paintBlob,
@@ -12316,6 +12485,14 @@ window.__crs = {
   ATTACKS: ATTACKS,
   resetGame: resetGame,
   startWave: startWave,
+  villeActiver: villeActiver,
+  destinationPartir: destinationPartir,
+  zonePourVague: zonePourVague,
+  vagueDeZone: vagueDeZone,
+  ZONES: ZONES,
+  VILLE_SPOTS: VILLE_SPOTS,
+  openCommissariat: openCommissariat,
+  ouvrirVille: ouvrirVille,
   spawnEnemy: spawnEnemy,
   ENEMY_TYPES: ENEMY_TYPES,
   wavePool: wavePool,
