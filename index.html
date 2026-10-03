@@ -628,6 +628,13 @@ document.addEventListener('keydown', function(e){
     e.preventDefault(); return;
   }
 
+  // ecran titre : tout passe par l arborescence (les anciens raccourcis
+  // a une lettre plus bas ne sont plus atteints depuis cet etat)
+  if (game.state === 'title'){
+    if (menuClavier(e.key)) e.preventDefault();
+    return;
+  }
+
   if (game.state === 'title' && (e.key === 'i' || e.key === 'I')){
     openAide();
     e.preventDefault(); return;
@@ -718,7 +725,7 @@ document.addEventListener('keydown', function(e){
     else if (e.key === 'Enter'){
       game.bindWait = { pj: game.bindCol + 1, act: BIND_ACTS[game.bindRow][0], label: BIND_ACTS[game.bindRow][1] };
     }
-    else if (e.key === 'Escape'){ game.state = 'options'; }
+    else if (e.key === 'Escape'){ game.state = game.bindFrom || 'options'; game.bindFrom = null; }
     e.preventDefault(); return;
   }
 
@@ -1539,6 +1546,8 @@ var ENEMY_TYPES = {
                 slogans:['J ETAIS LA AVANT TOI.','C EST MA RUE.','UNE PIECE, CHEF ?'] },
   gilet:      { name:'Gilet jaune', hp:35, spd:48, pal:null, atk:['epunch'], gilet:true,
                 slogans:['ON EST LA ! ON EST LA !','ROND-POINT A VIE.','MACRON, ENTENDS-TU ?'] },
+  bloqueuse:  { name:'Bloqueuse de rond-point', hp:32, spd:56, pal:null, atk:['epunch'], bloqueuse:true,
+                slogans:['ON BLOQUE TOUT.','LE ROND-POINT, C EST CHEZ NOUS.','CHAQUE SAMEDI. CHAQUE.'] },
   livreur:    { name:'Livreur en scooter', hp:30, spd:132, pal:null, atk:[], livreur:true,
                 slogans:['PARDON, JE BOSSE.','C EST POUR UNE COMMANDE.',
                          'VOUS ETES SUR MON CHEMIN !','3,80 EUROS LA COURSE...','5 ETOILES, HEIN.'] },
@@ -1631,7 +1640,7 @@ var PANIQUES = [
 ];
 var ZONE_POOLS = [
   ['casseur','casseur','antifa','anarchiste','etudiant'],            // RUE COMMERCANTE
-  ['tambour','casseur','casseur','sdf','danseuse','etudiant'],       // LA PLACE
+  ['tambour','casseur','bloqueuse','sdf','danseuse','etudiant','bloqueuse'], // LA PLACE
   ['artiste','costaud','leader','etudiant','etudiant'],              // PARVIS DE L ASSEMBLEE
   ['theoricien','etudiant','etudiant','etudiant'],                   // LE CAMPUS OCCUPE
   ['doyen','ouvrier','ouvrier','gilet','etudiant'],                  // LA RAFFINERIE
@@ -1664,7 +1673,7 @@ var WAVE_EVENTS = [
 ];
 var BESTIAIRE_ORDER = [
   'casseur','costaud','etudiant','antifa','anarchiste','ecolo','artiste','ouvrier','tambour','leader',
-  'punk','chien','junkie','danseuse','rasta','gilet','sdf','theoricien','doyen',
+  'punk','chien','junkie','danseuse','rasta','gilet','bloqueuse','sdf','theoricien','doyen',
   'journaliste','clochard','pacifiste','medic','livreur','badaud','retraite','bourgeoise','drone',
   'colosse','boucher','agitateur','veteran','dj'
 ];
@@ -1685,6 +1694,7 @@ var BESTIAIRE_DESC = {
   danseuse:   'Crane rase d un cote, transe de l autre.|Elle pompe ton souffle en dansant.',
   rasta:      'Son aura soigne les siens|et fait retomber ton adrenaline.',
   gilet:      'S arme en criant MACRON !|Mis a terre : desamorce.',
+  bloqueuse:  'Tient le rond-point de la place.|Approche et s arme : MACRON...|Mise a terre : desamorcee.',
   sdf:        'Son caddie est un belier.|C est son rond-point, point.',
   theoricien: 'A lu Le Capital. Deux fois.|Son discours repousse physiquement.',
   doyen:      'Indeboulonnable de face.|Il a connu 68, il te l explique.',
@@ -1887,7 +1897,7 @@ Fighter.prototype.update = function(dt){
     if (Math.random() < 0.12) game.particles.push({ x:this.x+rnd(-14,14), z:this.z+rnd(-8,8), y:rnd(2,10),
       vx:0, vy:8, vz:0, t:0.6, col:['#63d68f','#ffd166','#c0392b'][irnd(0,2)] });
   }
-  if (!this.isPlayer && this.kind === 'gilet' && this.boomT > 0 && !this.dead){
+  if (!this.isPlayer && (this.kind === 'gilet' || this.kind === 'bloqueuse') && this.boomT > 0 && !this.dead){
     if (this.state === 'fall' || this.state === 'down' || this.state === 'cuffed' || this.zapT > 0){
       this.boomT = 0;                            // mis a terre : DESAMORCE
       addFloater(this.x, this.screenY() - 52, 'DESAMORCE...', '#7ec8ff', 1.1, this.z);
@@ -3171,14 +3181,14 @@ Fighter.prototype.aiControl = function(dt, slow){
     if (this.state === 'idle' || this.state === 'walk') this.setState('idle');
     return;                                     // il ne frappe jamais : il soigne.
   }
-  if (this.kind === 'gilet'){
-    if (this.boomT > 0) return;                 // il s arme : plus rien ne l interesse
+  if (this.kind === 'gilet' || this.kind === 'bloqueuse'){
+    if (this.boomT > 0) return;                 // l armement : plus rien d autre ne compte
     var gdx3 = p.x - this.x, gaz3 = Math.abs(p.z - this.z);
     if ((this.state === 'idle' || this.state === 'walk') && Math.abs(gdx3) < 24 && gaz3 < 10){
       this.boomT = 1.05;
       this.vx = 0;
       this.setState('idle');
-      addFloater(this.x, this.screenY() - 58, 'MACRON !', '#ffd23f', 1.3, this.z);
+      addFloater(this.x, this.screenY() - 58, this.kind === 'bloqueuse' ? 'MACRON...' : 'MACRON !', '#ffd23f', 1.3, this.z);
       beep(880, 0.12, 'square', 0.07); beep(880, 0.12, 'square', 0.07, 0, 0.25); beep(880, 0.12, 'square', 0.07, 0, 0.5);
       return;
     }
@@ -4670,6 +4680,7 @@ function spawnEnemy(kind){
 
 /* ---------------- Cycle de jeu ---------------- */
 function resetGame(){
+  game.menu = null;                 // au retour a l ecran titre : menu principal
   game.fighters = []; game.items = []; game.projectiles = [];
   game.clouds = []; game.particles = []; game.floaters = [];
   game.score = 0; game.combo = 0; game.bestCombo = 0; game.comboT = 0; game.kills = 0;
@@ -7499,6 +7510,50 @@ function drawBodyGilet(g, f, o){
   }
 }
 
+function drawBodyBloqueuse(g, f, o){
+  // la bloqueuse de rond-point : carre brun court, gilet retro-reflechissant
+  var peau = ['#e8c19a', '#d8b598', '#c99f82'][(f.seed || 0) % 3];
+  var chev = '#4a3524';                                // brun fonce
+  // jean + baskets
+  bLimb(g, -2.2, 13, -2.2 + o.legB, 2.4, 3.9, '#3a4a68');
+  bLimb(g,  2.2, 13,  2.2 + o.legF, 2.4, 3.9, '#455880');
+  bRR(g, -2.2 + o.legB - 3, 0, 6.2, 3.4, 1.5, '#e8e6e0');
+  bRR(g,  2.2 + o.legF - 3, 0, 6.2, 3.4, 1.5, '#d8d5cc');
+  drawArmS(g, f, o.armB, -1, '#384050');
+  // sweat sombre sous LE GILET REFLECHISSANT
+  g.fillStyle = '#384050';
+  rrPath(g, -5.2, -24.5, 10.4, 13, 3); g.fill();
+  g.fillStyle = '#ffd23f';
+  rrPath(g, -4.6, -24, 9.2, 11.6, 2.4); g.fill();
+  g.fillStyle = '#384050';
+  g.fillRect(-1, -23.4, 2, 10.4);                      // l ouverture du gilet
+  g.fillStyle = '#c9d2e4';                             // les bandes retro-reflechissantes
+  g.fillRect(-4.6, -20.6, 9.2, 1.4);
+  g.fillRect(-4.6, -16.4, 9.2, 1.4);
+  g.fillStyle = 'rgba(255,255,255,0.55)';              // le fil de reflet sur chaque bande
+  g.fillRect(-4.6, -20.3, 9.2, 0.4);
+  g.fillRect(-4.6, -16.1, 9.2, 0.4);
+  // la tete : carre court, meche sur le front, nuque degagee
+  bEll(g, -1.2, 27.2, 2.2, 2.6, peau);
+  drawFace(g, 0.7, 26.8, 0.92, { skin: peau, angry: 0.5 });
+  g.fillStyle = chev;
+  g.beginPath(); g.ellipse(-1.4, -28.9, 2.6, 2.1, 0, Math.PI * 0.94, Math.PI * 2.14); g.fill();
+  g.fillRect(-3.8, -28.6, 1.7, 4.6);                   // la retombee du carre, cote nuque
+  g.beginPath(); g.ellipse(-3.0, -24.2, 0.9, 1.1, 0, 0, TAU); g.fill();
+  g.fillStyle = '#5d442c';                             // le reflet de la meche
+  g.fillRect(0.2, -30.2, 2.4, 0.7);
+  // petites boucles d oreilles dorees
+  g.fillStyle = '#e8c86a';
+  g.fillRect(-2.5, -25.6, 0.7, 0.7);
+  drawArmS(g, f, o.armF, 1, '#ffd23f');
+  // ARMEMENT : le gilet clignote rouge-jaune, comme son collegue
+  if (f.boomT > 0){
+    var fb3 = Math.floor(f.boomT * 12) % 2 === 0;
+    g.fillStyle = fb3 ? 'rgba(255,60,40,0.5)' : 'rgba(255,210,63,0.45)';
+    rrPath(g, -4.6, -24, 9.2, 11.6, 2.4); g.fill();
+  }
+}
+
 function drawBodyDanseuse(g, f, o){
   var mech = ['#ff5cf0','#4ad6ff','#a6ff3c'][(f.seed || 0) % 3];
   var peau = '#f0d5b8';
@@ -8816,6 +8871,7 @@ function drawBody(g, f){
   else if (f.kind==='retraite') drawBodyRetraite(g, f, o);
   else if (f.kind==='bourgeoise') drawBodyBourgeoise(g, f, o);
   else if (f.kind==='gilet') drawBodyGilet(g, f, o);
+  else if (f.kind==='bloqueuse') drawBodyBloqueuse(g, f, o);
   else if (f.kind==='chien') drawBodyChien(g, f, o);
   else if (f.kind==='rasta') drawBodyRasta(g, f, o);
   else if (f.kind==='danseuse') drawBodyDanseuse(g, f, o);
@@ -10820,95 +10876,495 @@ function drawNetOverlay(g){
   g.textAlign = 'left';
   g.restore();
 }
+/* ============================================================================
+   MENU PRINCIPAL EN ARBORESCENCE
+   Une pile d ecrans, chaque niveau garde sa selection. Clavier, manette et
+   tactile passent tous par fleches + Entree + Echap (synthetiques en menu),
+   la souris par menuClic / menuSurvol : une seule geometrie pour les deux.
+   ============================================================================ */
+var MENU_NOMS = { principal: 'MENU PRINCIPAL', solo: 'JOUER SEUL', multi: 'MULTIJOUEUR',
+                  enligne: 'EN LIGNE', options: 'OPTIONS', perso: 'PERSONNAGE', coups: 'LISTE DES COUPS' };
+var DIFF_INFO = ['Ennemis fragiles, coups amortis', 'L equilibre prevu par le concours',
+                 'Ennemis plus solides et plus rapides'];
+
+function menuEtat(){
+  if (!game.menu || !game.menu.pile || !game.menu.pile.length){
+    game.menu = { pile: ['principal'], sel: [0], duo: false, coupsSel: 0 };
+  }
+  return game.menu;
+}
+function menuReset(){ game.menu = null; return menuEtat(); }
+function menuEcran(){ var m = menuEtat(); return m.pile[m.pile.length - 1]; }
+function menuSelIdx(){ var m = menuEtat(); return m.sel[m.sel.length - 1] || 0; }
+function menuSetSel(i){ var m = menuEtat(); m.sel[m.sel.length - 1] = i; }
+function diffIdx(){ return settings.diff === undefined ? 1 : settings.diff; }
+function diffCycle(d){
+  var n = DIFFS.length;
+  settings.diff = ((diffIdx() + d) % n + n) % n;
+  saveSettings(); SFX.pickup();
+}
+function menuTic(){ try { beep(620, 0.03, 'square', 0.025); } catch(e){} }
+
+function menuItems(nom){
+  if (nom === 'principal') return [
+    { label: 'JOUER SEUL',  type: 'sous', go: 'solo',  info: 'La campagne : six tableaux jusqu a la rave' },
+    { label: 'MULTIJOUEUR', type: 'sous', go: 'multi', info: 'A deux sur ce clavier, ou en ligne' },
+    { label: 'ARMURERIE',   type: 'act',
+      run: function(){ game.state = 'armory'; game.armRow = 0; }, info: 'Skins et equipement de depart' },
+    { label: 'BESTIAIRE',   type: 'act',
+      run: function(){ game.state = 'guide'; game.guideSel = game.guideSel || 0; }, info: 'Tous les manifestants et leurs travers' },
+    { label: 'TABLEAU DE LA CLASSE', type: 'act',
+      run: function(){ game.state = 'scores'; fetchScores(); }, info: 'Les meilleurs scores de la classe' },
+    { label: 'OPTIONS',     type: 'sous', go: 'options', info: 'Son, affichage, commandes, liste des coups' }
+  ];
+  if (nom === 'solo' || nom === 'multi'){
+    var it = [];
+    if (nom === 'solo'){
+      it.push({ label: 'NOUVELLE PARTIE', type: 'sous', go: 'perso', duo: false, info: 'Choisir son agent et partir en manif' });
+      var sv = chargerCampagne();
+      if (sv && sv.v === 1){
+        it.push({ label: 'REPRENDRE', type: 'act', val: 'ZONE ' + ((sv.zone || 0) + 1) + ' \u00B7 MANCHE ' + sv.wave,
+                  run: function(){ if (reprendreCampagne()){ menuReset(); startAmbience(); } },
+                  info: 'Repartir du dernier passage au commissariat' });
+      } else {
+        it.push({ label: 'REPRENDRE', type: 'act', off: true, val: 'AUCUNE SAUVEGARDE', info: 'Aucune campagne en cours' });
+      }
+    } else {
+      it.push({ label: 'MULTI LOCAL', type: 'sous', go: 'perso', duo: true, info: 'Deux joueurs sur ce clavier ou deux manettes' });
+      it.push({ label: 'EN LIGNE',    type: 'sous', go: 'enligne', info: 'Coop a deux, avec un code a partager' });
+    }
+    it.push({ label: 'DIFFICULTE', type: 'cycle', val: DIFFS[diffIdx()].nom, cycle: diffCycle, info: DIFF_INFO[diffIdx()] });
+    it.push({ label: 'RETOUR', type: 'retour' });
+    return it;
+  }
+  if (nom === 'enligne') return [
+    { label: 'CREER UN SALON', type: 'act', run: function(){ netCreate(); SFX.pickup(); },
+      info: 'Un code s affiche : donne-le a ton binome' },
+    { label: 'REJOINDRE AVEC UN CODE', type: 'act',
+      run: function(){ game.state = 'netjoin'; game.netCode = ''; SFX.pickup(); }, info: 'Saisir les 4 lettres du salon' },
+    { label: 'RETOUR', type: 'retour' }
+  ];
+  if (nom === 'options') return [
+    { label: 'VOLUME DES EFFETS', type: 'volume', info: 'Le niveau sonore des coups et des bruitages' },
+    { label: 'MUSIQUE', type: 'toggle', on: settings.musicOn,
+      flip: function(){ settings.musicOn = !settings.musicOn; saveSettings(); SFX.pickup(); }, info: 'Musique des tableaux et des menus' },
+    { label: 'BRUITAGES', type: 'toggle', on: settings.sfxOn,
+      flip: function(){ settings.sfxOn = !settings.sfxOn; saveSettings(); SFX.pickup(); }, info: 'Coups, explosions, sirenes' },
+    { label: 'SECOUSSES DE L ECRAN', type: 'toggle', on: settings.shake,
+      flip: function(){ settings.shake = !settings.shake; saveSettings(); }, info: 'A couper si l ecran tremble trop' },
+    { label: 'PLEIN ECRAN', type: 'act', val: 'BASCULER', run: function(){ toggleFullscreen(); }, info: 'Echap pour en sortir' },
+    { label: 'COMMANDES', type: 'act', val: 'MODIFIER',
+      run: function(){ game.bindFrom = 'title'; game.state = 'binds'; game.bindRow = 0; game.bindCol = 0; game.bindWait = null; },
+      info: 'Changer les touches des joueurs 1 et 2' },
+    { label: 'LISTE DES COUPS', type: 'sous', go: 'coups', info: 'Les coups de base et ceux de chaque agent' },
+    { label: 'AIDE COMPLETE', type: 'act', run: function(){ openAide(); }, info: 'Objets, manette, toutes les commandes' },
+    { label: 'RETOUR', type: 'retour' }
+  ];
+  return [];
+}
+
+function menuAller(it){
+  var m = menuEtat();
+  if (it.go === 'perso'){ m.duo = !!it.duo; game.p2Active = !!it.duo; }
+  if (it.go === 'coups') m.coupsSel = game.selChar || 0;
+  m.pile.push(it.go); m.sel.push(0);
+  SFX.pickup();
+}
+function menuRetour(){
+  var m = menuEtat();
+  if (m.pile.length <= 1) return;
+  m.pile.pop(); m.sel.pop();
+  menuTic();
+}
+function menuDeplacer(d){
+  var n = menuItems(menuEcran()).length;
+  if (!n) return;
+  menuSetSel((menuSelIdx() + d + n) % n);
+  menuTic();
+}
+function menuAjuster(it, d){
+  if (!it) return;
+  if (it.type === 'cycle') it.cycle(d);
+  else if (it.type === 'toggle') it.flip();
+  else if (it.type === 'volume'){
+    settings.vol = clamp(Math.round((settings.vol + d * 0.1) * 10) / 10, 0, 1);
+    saveSettings(); SFX.pickup();
+  }
+}
+function menuActiver(i){
+  var it = menuItems(menuEcran())[i];
+  if (!it) return;
+  menuSetSel(i);
+  if (it.off){ try { beep(180, 0.08, 'square', 0.04); } catch(e){} return; }
+  if (it.type === 'sous') menuAller(it);
+  else if (it.type === 'retour') menuRetour();
+  else if (it.type === 'act') it.run();
+  else if (it.type === 'volume'){
+    settings.vol = settings.vol >= 0.95 ? 0 : Math.round((settings.vol + 0.1) * 10) / 10;
+    saveSettings(); SFX.pickup();
+  }
+  else menuAjuster(it, 1);
+}
+function menuLancer(){
+  game.p2Active = !!menuEtat().duo;
+  menuReset();
+  onEnter();
+}
+function menuChar(cur, d){ return (cur + CHARS.length + d) % CHARS.length; }
+
+// renvoie true si la touche a ete consommee (les autres, F5, F12..., passent)
+function menuClavier(k){
+  var ec = menuEcran(), m = menuEtat();
+  var gauche = k === 'ArrowLeft', droite = k === 'ArrowRight';
+  var valide = k === 'Enter' || k === ' ';
+  var retour = k === 'Escape' || k === 'Backspace';
+  if (ec === 'perso'){
+    if (gauche || droite){ game.selChar = menuChar(game.selChar || 0, droite ? 1 : -1); menuTic(); return true; }
+    if (m.duo && /^[jJlL]$/.test(k)){ game.selChar2 = menuChar(game.selChar2 || 0, /[lL]/.test(k) ? 1 : -1); menuTic(); return true; }
+    if (valide){ menuLancer(); return true; }
+    if (retour){ menuRetour(); return true; }
+    return k === 'ArrowUp' || k === 'ArrowDown';
+  }
+  if (ec === 'coups'){
+    if (gauche || droite){ m.coupsSel = menuChar(m.coupsSel || 0, droite ? 1 : -1); menuTic(); return true; }
+    if (valide || retour){ menuRetour(); return true; }
+    return k === 'ArrowUp' || k === 'ArrowDown';
+  }
+  var items = menuItems(ec), i = menuSelIdx();
+  if (k === 'ArrowUp' || k === 'ArrowDown'){ menuDeplacer(k === 'ArrowDown' ? 1 : -1); return true; }
+  if (gauche || droite){ menuAjuster(items[i], droite ? 1 : -1); return true; }
+  if (valide){ menuActiver(i); return true; }
+  if (retour){ menuRetour(); return true; }
+  return false;
+}
+
+/* ---------- geometrie partagee par le rendu et la souris ---------- */
+var MENU_PX = 186, MENU_PW = 262, MENU_Y0 = 66, MENU_PAS = 17;
+function menuRangY(i){ return MENU_Y0 + 16 + i * MENU_PAS; }          // centre de la rangee i
+function menuPanneauH(n){ return 16 + (n - 1) * MENU_PAS + 34; }
+var PERSO_X0 = 77, PERSO_CW = 74, PERSO_CH = 78, PERSO_PAS = 84, PERSO_Y = 66;
+var BTN_RETOUR = { x: 77,  y: 226, w: 84, h: 18 };
+var BTN_JOUER  = { x: 319, y: 226, w: 84, h: 18 };
+var BTN_RETOUR_COUPS = { x: 20, y: 236, w: 76, h: 16 };
+function dansRect(pt, r){ return pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h; }
+function menuRangSous(pt, n){
+  if (pt.x < MENU_PX + 4 || pt.x > MENU_PX + MENU_PW - 4) return -1;
+  for (var i = 0; i < n; i++){
+    var y = menuRangY(i);
+    if (pt.y >= y - 8 && pt.y <= y + 8) return i;
+  }
+  return -1;
+}
+function menuClic(pt){
+  var ec = menuEcran(), m = menuEtat();
+  if (ec === 'perso'){
+    for (var c = 0; c < CHARS.length; c++){
+      var cx = PERSO_X0 + c * PERSO_PAS;
+      if (pt.x >= cx && pt.x <= cx + PERSO_CW && pt.y >= PERSO_Y && pt.y <= PERSO_Y + PERSO_CH){
+        if (m.duo && pt.x > cx + PERSO_CW / 2) game.selChar2 = c; else game.selChar = c;
+        menuTic(); return;
+      }
+    }
+    if (dansRect(pt, BTN_JOUER)) menuLancer();
+    else if (dansRect(pt, BTN_RETOUR)) menuRetour();
+    return;
+  }
+  if (ec === 'coups'){
+    for (var t = 0; t < CHARS.length; t++){
+      if (pt.x >= 60 + t * 90 && pt.x <= 150 + t * 90 && pt.y >= 62 && pt.y <= 80){ m.coupsSel = t; menuTic(); return; }
+    }
+    if (dansRect(pt, BTN_RETOUR_COUPS)) menuRetour();
+    return;
+  }
+  var items = menuItems(ec);
+  var i = menuRangSous(pt, items.length);
+  if (i < 0) return;
+  var it = items[i];
+  if (it.type === 'volume'){
+    var bx0 = MENU_PX + MENU_PW - 16 - 10 * 9;
+    if (pt.x >= bx0){
+      settings.vol = clamp(Math.ceil((pt.x - bx0) / 9) / 10, 0, 1);
+      saveSettings(); SFX.pickup(); menuSetSel(i); return;
+    }
+  }
+  menuActiver(i);
+}
+function menuSurvol(pt){
+  var ec = menuEcran();
+  if (ec === 'perso' || ec === 'coups') return;
+  var i = menuRangSous(pt, menuItems(ec).length);
+  if (i >= 0 && i !== menuSelIdx()){ menuSetSel(i); menuTic(); }
+}
+
+/* ---------- rendu ---------- */
+function menuHeros(g, i, x, y, sc, alpha){
+  var pals = [PAL_CRS, PAL_MIN, PAL_K9, PAL_CRO];
+  var fake = { pal: pals[i], kind: CHARS[i].id, isPlayer: false, animT: game.time + i * 1.7,
+               state: 'idle', stateT: 0, dir: 1, weapon: null, comboStep: 0, buffT: 0,
+               attackSpec: function(){ return ATTACKS.punch1; } };
+  g.save();
+  g.translate(x, y); g.scale(sc, sc);
+  if (alpha !== undefined) g.globalAlpha = alpha;
+  drawBody(g, fake);
+  g.restore();
+}
+function menuSpot(g, x, y, r){
+  var sg = g.createRadialGradient(x, y, 2, x, y, r);
+  sg.addColorStop(0, 'rgba(255,209,102,0.20)');
+  sg.addColorStop(1, 'rgba(255,209,102,0)');
+  g.fillStyle = sg;
+  g.beginPath(); g.ellipse(x, y, r, r * 0.28, 0, 0, TAU); g.fill();
+}
+function menuLogo(g){
+  var m = menuEtat();
+  g.textAlign = 'center';
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.7)'; g.shadowBlur = 8; g.shadowOffsetY = 3;
+  var tg = g.createLinearGradient(0, 18, 0, 42);
+  tg.addColorStop(0, '#ffffff'); tg.addColorStop(1, '#9fb1d4');
+  g.fillStyle = tg; g.font = 'bold 24px monospace';
+  g.fillText('CRS FIGHTER', W / 2, 38);
+  g.restore();
+  g.fillStyle = '#c0392b'; rrPath(g, W / 2 - 66, 43, 132, 2.5, 1.2); g.fill();
+  g.font = '7px monospace';
+  if (m.pile.length <= 1){
+    g.fillStyle = '#93a1ba';
+    g.fillText('UN BEAT\u2019EM UP FACON LITTLE FIGHTER 2', W / 2, 56);
+  } else {
+    var fil = [];
+    for (var i = 0; i < m.pile.length; i++){
+      var nm = MENU_NOMS[m.pile[i]];
+      if (m.pile[i] === 'perso') nm = m.duo ? 'MULTI LOCAL' : 'NOUVELLE PARTIE';
+      fil.push(nm);
+    }
+    g.fillStyle = '#8fa3c4';
+    g.fillText(fil.join('  \u203A  '), W / 2, 56);
+  }
+}
+function menuPied(g, txt){
+  g.textAlign = 'center';
+  g.fillStyle = '#5d6a86'; g.font = '6.5px monospace';
+  g.fillText(txt, W / 2, 263);
+  g.textAlign = 'right'; g.fillStyle = '#39415a'; g.font = '6px monospace';
+  g.fillText('v4.6', W - 8, H - 7);
+  if (padSeen){ g.fillStyle = '#7ce38b'; g.font = 'bold 6px monospace'; g.fillText('\u25CF MANETTE', W - 8, 14); }
+  g.textAlign = 'left';
+}
+function menuBarre(g, x, y, w, frac, col){
+  g.fillStyle = '#1b2232'; g.fillRect(x, y, w, 3);
+  g.fillStyle = col; g.fillRect(x, y, Math.max(1, w * frac), 3);
+}
+
+function drawMenuListe(g, nom){
+  var items = menuItems(nom), sel = menuSelIdx(), n = items.length;
+  // l agent du moment, en vedette a gauche
+  menuSpot(g, 96, 198, 46);
+  menuHeros(g, game.selChar || 0, 96, 198, 2.3);
+  g.textAlign = 'center';
+  g.fillStyle = '#ffd166'; g.font = 'bold 7px monospace';
+  g.fillText(CHARS[game.selChar || 0].name, 96, 214);
+  // le panneau
+  var ph = menuPanneauH(n);
+  g.fillStyle = 'rgba(12,15,26,0.88)';
+  rrPath(g, MENU_PX, MENU_Y0, MENU_PW, ph, 6); g.fill();
+  g.strokeStyle = 'rgba(120,132,160,0.35)'; g.lineWidth = 1;
+  rrPath(g, MENU_PX + 0.5, MENU_Y0 + 0.5, MENU_PW - 1, ph - 1, 6); g.stroke();
+  var xr = MENU_PX + MENU_PW - 16;
+  for (var i = 0; i < n; i++){
+    var it = items[i], y = menuRangY(i), on = i === sel;
+    if (on){
+      g.fillStyle = 'rgba(255,209,102,0.12)';
+      rrPath(g, MENU_PX + 6, y - 7.5, MENU_PW - 12, 15, 3); g.fill();
+      g.strokeStyle = 'rgba(255,209,102,0.7)'; g.lineWidth = 1;
+      rrPath(g, MENU_PX + 6.5, y - 7, MENU_PW - 13, 14, 3); g.stroke();
+    }
+    g.textAlign = 'left';
+    g.fillStyle = it.off ? '#4d5871' : (on ? '#ffd166' : (it.type === 'retour' ? '#8b96ad' : '#c3cbdb'));
+    g.font = (on ? 'bold ' : '') + '8px monospace';
+    g.fillText(it.label, MENU_PX + 16, y + 3);
+    g.textAlign = 'right';
+    g.font = '7px monospace';
+    if (it.type === 'sous'){
+      g.fillStyle = on ? '#ffd166' : '#5d6a86'; g.font = 'bold 8px monospace';
+      g.fillText('\u203A', xr, y + 3);
+    } else if (it.type === 'cycle'){
+      g.fillStyle = on ? '#e8eefc' : '#7e8aa6';
+      g.fillText(on ? '\u25C4 ' + it.val + ' \u25BA' : it.val, xr, y + 3);
+    } else if (it.type === 'toggle'){
+      g.fillStyle = it.on ? '#7ce38b' : '#ff8a7a'; g.font = 'bold 7px monospace';
+      g.fillText(it.on ? 'OUI' : 'NON', xr, y + 3);
+    } else if (it.type === 'volume'){
+      for (var b = 0; b < 10; b++){
+        g.fillStyle = b < Math.round(settings.vol * 10) ? '#7ec8ff' : '#2a3245';
+        g.fillRect(xr - 90 + b * 9, y - 4, 7, 7);
+      }
+    } else if (it.val){
+      g.fillStyle = it.off ? '#4d5871' : (on ? '#e8eefc' : '#7e8aa6');
+      g.fillText(it.val, xr, y + 3);
+    }
+  }
+  // la ligne d info de l element survole
+  var yi = menuRangY(n - 1) + 21;
+  g.strokeStyle = 'rgba(120,132,160,0.22)';
+  g.beginPath(); g.moveTo(MENU_PX + 12, yi - 9); g.lineTo(MENU_PX + MENU_PW - 12, yi - 9); g.stroke();
+  var cur = items[sel];
+  if (cur && cur.info){
+    g.textAlign = 'center'; g.fillStyle = '#8fa3c4'; g.font = '6.5px monospace';
+    g.fillText(cur.info, MENU_PX + MENU_PW / 2, yi + 2);
+  }
+  menuPied(g, '\u2191\u2193 CHOISIR \u00B7 ENTREE : VALIDER' +
+    (menuEtat().pile.length > 1 ? ' \u00B7 ECHAP : RETOUR' : '') +
+    (cur && (cur.type === 'cycle' || cur.type === 'volume') ? ' \u00B7 \u25C4 \u25BA : REGLER' : ''));
+}
+
+function drawMenuPerso(g){
+  var m = menuEtat(), duo = !!m.duo;
+  var j1 = game.selChar || 0, j2 = game.selChar2 || 0;
+  g.textAlign = 'center';
+  g.fillStyle = '#ffd166'; g.font = 'bold 9px monospace';
+  // les cartes
+  for (var i = 0; i < CHARS.length; i++){
+    var x = PERSO_X0 + i * PERSO_PAS, y = PERSO_Y;
+    var s1 = j1 === i, s2 = duo && j2 === i;
+    g.save();
+    if (s1){ g.shadowColor = 'rgba(192,57,43,0.55)'; g.shadowBlur = 10; }
+    else if (s2){ g.shadowColor = 'rgba(72,169,251,0.5)'; g.shadowBlur = 10; }
+    g.fillStyle = (s1 || s2) ? '#1d2536' : '#12151f';
+    rrPath(g, x, y, PERSO_CW, PERSO_CH, 6); g.fill();
+    g.restore();
+    g.strokeStyle = s1 ? '#c0392b' : (s2 ? '#48a9fb' : '#2a3245'); g.lineWidth = 1.6;
+    rrPath(g, x + 0.8, y + 0.8, PERSO_CW - 1.6, PERSO_CH - 1.6, 5.5); g.stroke();
+    if (s1 && s2){
+      g.strokeStyle = '#48a9fb'; g.lineWidth = 1.4;
+      rrPath(g, x + 4, y + 4, PERSO_CW - 8, PERSO_CH - 8, 4); g.stroke();
+    }
+    menuHeros(g, i, x + PERSO_CW / 2, y + 60, 1.45, (s1 || s2) ? 1 : 0.5);
+    g.fillStyle = (s1 || s2) ? '#ffd166' : '#5d6a86';
+    g.font = (s1 || s2) ? 'bold 6.5px monospace' : '6.5px monospace';
+    g.fillText(CHARS[i].name, x + PERSO_CW / 2, y + PERSO_CH - 7);
+    g.font = 'bold 6px monospace';
+    if (s1){ g.fillStyle = '#ff7a6b'; g.fillText('J1', x + 10, y + 11); }
+    if (s2){ g.fillStyle = '#7ec8ff'; g.fillText('J2', x + PERSO_CW - 10, y + 11); }
+  }
+  // la fiche
+  function stats(c, x0, y0, w, empile){
+    var d = CHARS[c];
+    var rows = [['PV', d.hp / 145, '#e05a4f'], ['MP', d.mp / 130, '#5aa8e8'], ['VIT', d.speed / 80, '#7ce38b']];
+    for (var r = 0; r < 3; r++){
+      var gx = empile ? x0 : x0 + r * 72, gy = empile ? y0 + r * 8 : y0;
+      g.textAlign = 'left'; g.fillStyle = '#6b7690'; g.font = '6px monospace';
+      g.fillText(rows[r][0], gx, gy + 3.5);
+      menuBarre(g, gx + 16, gy, w, rows[r][1], rows[r][2]);
+    }
+  }
+  if (!duo){
+    var d1 = CHARS[j1];
+    g.textAlign = 'center';
+    g.fillStyle = '#ffd166'; g.font = 'bold 10px monospace';
+    g.fillText(d1.name, W / 2, 158);
+    g.fillStyle = '#93a1ba'; g.font = '7px monospace';
+    g.fillText(d1.desc, W / 2, 169);
+    stats(j1, W / 2 - 105, 175, 50, false);
+    var mvs = d1.moves || [];
+    g.textAlign = 'center';
+    for (var mv = 0; mv < mvs.length; mv++){
+      g.fillStyle = mv === 0 ? '#ffd166' : '#8b96ad';
+      g.font = (mv === 0 ? 'bold ' : '') + '6px monospace';
+      g.fillText(mvs[mv], W / 2, 192 + mv * 9);
+    }
+  } else {
+    var cols = [[150, j1, 'J1', '#ff7a6b', '\u25C4 \u25BA'], [330, j2, 'J2', '#7ec8ff', 'J / L']];
+    for (var k = 0; k < 2; k++){
+      var cx = cols[k][0], dk = CHARS[cols[k][1]];
+      g.textAlign = 'center';
+      g.fillStyle = cols[k][3]; g.font = 'bold 8px monospace';
+      g.fillText(cols[k][2] + ' \u00B7 ' + dk.name, cx, 159);
+      g.fillStyle = '#93a1ba'; g.font = '6.5px monospace';
+      g.fillText(dk.desc, cx, 170);
+      stats(cols[k][1], cx - 58, 177, 100, true);
+      g.textAlign = 'center'; g.fillStyle = '#5d6a86'; g.font = '6px monospace';
+      g.fillText('CHANGER : ' + cols[k][4], cx, 210);
+    }
+  }
+  // boutons
+  var cl = Math.floor(game.time * 2) % 2 === 0;
+  g.fillStyle = 'rgba(30,38,54,0.9)'; rrPath(g, BTN_RETOUR.x, BTN_RETOUR.y, BTN_RETOUR.w, BTN_RETOUR.h, 4); g.fill();
+  g.strokeStyle = 'rgba(120,132,160,0.5)'; g.lineWidth = 1;
+  rrPath(g, BTN_RETOUR.x + 0.5, BTN_RETOUR.y + 0.5, BTN_RETOUR.w - 1, BTN_RETOUR.h - 1, 4); g.stroke();
+  g.fillStyle = cl ? 'rgba(255,209,102,0.22)' : 'rgba(255,209,102,0.12)';
+  rrPath(g, BTN_JOUER.x, BTN_JOUER.y, BTN_JOUER.w, BTN_JOUER.h, 4); g.fill();
+  g.strokeStyle = '#ffd166'; g.lineWidth = 1.2;
+  rrPath(g, BTN_JOUER.x + 0.6, BTN_JOUER.y + 0.6, BTN_JOUER.w - 1.2, BTN_JOUER.h - 1.2, 4); g.stroke();
+  g.textAlign = 'center';
+  g.fillStyle = '#9aa5bd'; g.font = 'bold 7px monospace';
+  g.fillText('\u2039 RETOUR', BTN_RETOUR.x + BTN_RETOUR.w / 2, BTN_RETOUR.y + 12);
+  g.fillStyle = '#ffd166'; g.font = 'bold 8px monospace';
+  g.fillText('JOUER \u203A', BTN_JOUER.x + BTN_JOUER.w / 2, BTN_JOUER.y + 12.5);
+  g.fillStyle = '#6b7690'; g.font = '6.5px monospace';
+  g.fillText('DIFFICULTE : ' + DIFFS[diffIdx()].nom, W / 2, BTN_JOUER.y + 12);
+  menuPied(g, duo ? 'J1 : \u25C4 \u25BA \u00B7 J2 : J / L \u00B7 ENTREE : JOUER \u00B7 ECHAP : RETOUR'
+                  : '\u25C4 \u25BA : CHOISIR \u00B7 ENTREE : JOUER \u00B7 ECHAP : RETOUR');
+}
+
+function drawMenuCoups(g){
+  var m = menuEtat(), c = m.coupsSel || 0, d = CHARS[c];
+  // onglets
+  for (var t = 0; t < CHARS.length; t++){
+    var on = t === c, tx = 60 + t * 90;
+    g.fillStyle = on ? 'rgba(255,209,102,0.14)' : 'rgba(30,38,54,0.8)';
+    rrPath(g, tx + 2, 63, 86, 16, 4); g.fill();
+    g.strokeStyle = on ? '#ffd166' : 'rgba(120,132,160,0.4)'; g.lineWidth = 1;
+    rrPath(g, tx + 2.5, 63.5, 85, 15, 4); g.stroke();
+    g.textAlign = 'center';
+    g.fillStyle = on ? '#ffd166' : '#8b96ad'; g.font = (on ? 'bold ' : '') + '6.5px monospace';
+    g.fillText(CHARS[t].name, tx + 45, 73.5);
+  }
+  // l agent
+  menuSpot(g, 92, 206, 42);
+  menuHeros(g, c, 92, 206, 2.2);
+  // le panneau des coups
+  g.fillStyle = 'rgba(12,15,26,0.88)'; rrPath(g, 166, 88, 288, 142, 6); g.fill();
+  g.strokeStyle = 'rgba(120,132,160,0.35)'; g.lineWidth = 1; rrPath(g, 166.5, 88.5, 287, 141, 6); g.stroke();
+  var kA = keyLabel(keyOfActionIn(KEYMAP, 'ATK')), kS = keyLabel(keyOfActionIn(KEYMAP, 'JMP'));
+  var kD = keyLabel(keyOfActionIn(KEYMAP, 'DEF')), kF = keyLabel(keyOfActionIn(KEYMAP, 'PWR'));
+  var base = [
+    kA + ' : ATTAQUE \u00B7 APPUIS RAPPROCHES = ENCHAINEMENT',
+    kS + ' : SAUT \u00B7 ' + kA + ' EN COURANT : TACLE',
+    '\u2190\u2190 OU \u2192\u2192 : COURIR \u00B7 ' + kD + ' : GARDE',
+    kD + ' + ' + kA + ' SUR UN ENNEMI A TERRE : MENOTTER',
+    kA + ' PRES D UN OBJET : RAMASSER',
+    kF + ' : POUVOIR, QUAND L ADRENALINE EST PLEINE'
+  ];
+  g.textAlign = 'left';
+  g.fillStyle = '#7ec8ff'; g.font = 'bold 7px monospace';
+  g.fillText('COMMUN A TOUS', 178, 102);
+  g.fillStyle = '#c3cbdb'; g.font = '6.5px monospace';
+  for (var b = 0; b < base.length; b++) g.fillText(base[b], 178, 113 + b * 9.5);
+  g.fillStyle = '#ffd166'; g.font = 'bold 7px monospace';
+  g.fillText('PROPRES A ' + d.name, 178, 180);
+  var mvs = d.moves || [];
+  g.font = '6.2px monospace';
+  for (var mv = 0; mv < mvs.length; mv++){
+    g.fillStyle = mv === 0 ? '#f2d9a0' : '#c3cbdb';
+    g.fillText(mvs[mv], 178, 191 + mv * 10);
+  }
+  // retour
+  g.fillStyle = 'rgba(30,38,54,0.9)';
+  rrPath(g, BTN_RETOUR_COUPS.x, BTN_RETOUR_COUPS.y, BTN_RETOUR_COUPS.w, BTN_RETOUR_COUPS.h, 4); g.fill();
+  g.textAlign = 'center'; g.fillStyle = '#9aa5bd'; g.font = 'bold 7px monospace';
+  g.fillText('\u2039 RETOUR', BTN_RETOUR_COUPS.x + BTN_RETOUR_COUPS.w / 2, BTN_RETOUR_COUPS.y + 11);
+  menuPied(g, '\u25C4 \u25BA : AGENT \u00B7 ECHAP : RETOUR');
+}
+
 function drawTitle(g){
   drawBackground(g);
-  g.fillStyle='rgba(8,10,18,0.55)'; g.fillRect(0,0,W,H);
-
-  g.textAlign='center';
-  g.save();
-  g.shadowColor='rgba(0,0,0,0.7)'; g.shadowBlur=8; g.shadowOffsetY=3;
-  var tg = g.createLinearGradient(0,50,0,80);
-  tg.addColorStop(0,'#ffffff'); tg.addColorStop(1,'#9fb1d4');
-  g.fillStyle = tg; g.font='bold 30px monospace';
-  g.fillText('CRS FIGHTER', W/2, 74);
-  g.restore();
-  g.fillStyle='#c0392b'; rrPath(g, W/2-78, 80, 156, 3, 1.5); g.fill();
-  g.fillStyle='#93a1ba'; g.font='8px monospace';
-  g.fillText('UN BEAT\u2019EM UP FACON LITTLE FIGHTER 2', W/2, 94);
-
-  var charPals = [PAL_CRS, PAL_MIN, PAL_K9, PAL_CRO];
-  for (var i=0;i<4;i++){
-    var x = W/2 - 104 + i*54, y = 110;
-    var selC = game.selChar === i;
-    g.save();
-    if (selC){ g.shadowColor='rgba(192,57,43,0.55)'; g.shadowBlur=10; }
-    g.fillStyle = selC ? '#1d2536' : '#12151f';
-    rrPath(g, x, y, 46, 60, 5); g.fill();
-    g.restore();
-    g.strokeStyle = selC ? '#c0392b' : '#2a3245';
-    g.lineWidth = 1.5;
-    rrPath(g, x+0.7, y+0.7, 44.6, 58.6, 4.5); g.stroke();
-    if (game.p2Active && game.selChar2 === i){
-      g.strokeStyle = '#48a9fb'; g.lineWidth = 1.5;
-      rrPath(g, x+3, y+3, 40, 54, 3.5); g.stroke();
-      g.fillStyle = '#48a9fb'; g.font = 'bold 5px monospace';
-      g.fillText('J2', x+40, y+9);
-    }
-    if (selC){
-      g.fillStyle = '#c0392b'; g.font = 'bold 5px monospace';
-      g.fillText('J1', x+6, y+9);
-    }
-    g.save();
-    g.translate(x+23, y+52);
-    if (!selC) g.globalAlpha = 0.55;
-    var fake = { pal:charPals[i], kind:CHARS[i].id, isPlayer:false, animT: game.time + i*1.7,
-                 state:'idle', stateT:0, dir:1, weapon:null, comboStep:0, buffT:0,
-                 attackSpec:function(){ return ATTACKS.punch1; } };
-    drawBody(g, fake);
-    g.restore();
-    g.fillStyle = selC ? '#ffd166' : '#4d5871'; g.font = selC ? 'bold 7px monospace' : '7px monospace';
-    g.fillText(CHARS[i].name, x+23, y+68);
-  }
-  g.fillStyle='#93a1ba'; g.font='7px monospace';
-  g.fillText('\u25C4 \u25BA  ' + CHARS[game.selChar].desc + '  \u25C4 \u25BA', W/2, 186);
-  var mvs = CHARS[game.selChar].moves || [];
-  for (var mv=0; mv<mvs.length; mv++){
-    g.fillStyle = mv === 0 ? '#ffd166' : '#8b96ad';
-    g.font = mv === 0 ? 'bold 5.5px monospace' : '5.5px monospace';
-    g.fillText(mvs[mv], W/2, 194 + mv*7);
-  }
-  if (game.p2Active){
-    g.fillStyle='#48a9fb'; g.font='bold 7px monospace';
-    g.fillText('JOUEUR 2 : ' + CHARS[game.selChar2].name + '  (J / L pour changer \u00B7 U pour quitter)', W/2, 215);
-  } else {
-    g.fillStyle = Math.floor(game.time*1.6)%2===0 ? '#48a9fb' : '#2a4a6b';
-    g.font='bold 7px monospace';
-    g.fillText('U : JOUEUR 2 REJOINT LA PARTIE', W/2, 215);
-  }
-  g.fillStyle = Math.floor(game.time*2)%2===0 ? '#ffd166' : '#8b7333';
-  g.font='bold 9px monospace';
-  g.fillText('APPUYEZ SUR ENTREE', W/2, 210);
-  g.fillStyle='#4d5871'; g.font='7px monospace';
-  g.fillText('J1 : FLECHES \u00B7 A ATTAQUE \u00B7 S SAUT \u00B7 D GARDE \u00B7 E SPECIAL', W/2, 222);
-  g.fillText('J2 : IJKL \u00B7 U ATTAQUE \u00B7 O SAUT \u00B7 M GARDE \u00B7 Y SPECIAL', W/2, 231);
-  g.fillStyle='#5d6a86'; g.font='bold 7px monospace';
-  g.fillText('G REGLAGES \u00B7 I AIDE \u00B7 S TABLEAU DES SCORES \u00B7 A ARMURERIE', W/2, 241);
-  g.save();
-  g.textAlign='right'; g.fillStyle='#39415a'; g.font='6px monospace';
-  g.fillText('v4.5', W - 8, H - 8);
-  g.restore();
-  if (padSeen){
-    g.fillStyle='#7ce38b'; g.font='bold 6px monospace';
-    g.fillText('\u25CF MANETTE DETECTEE \u2014 CROIX ATTAQUE \u00B7 ROND SAUT \u00B7 CARRE GARDE \u00B7 TRIANGLE SPECIAL', W/2, 249);
-  }
-  var sv9 = chargerCampagne();
-  g.fillStyle='#8fd3f4'; g.font='bold 7px monospace';
-  g.fillText('B : BESTIAIRE \u00B7 D : DIFFICULTE [' + DIFFS[settings.diff === undefined ? 1 : settings.diff].nom + ']' +
-    (sv9 && sv9.v === 1 ? ' \u00B7 C : REPRENDRE (ZONE ' + ((sv9.zone || 0) + 1) + ' \u00B7 MANCHE ' + sv9.wave + ')' : '') +
-    ' \u00B7 O : EN LIGNE', W/2, 231);
-  g.fillStyle='#ffd166'; g.font='bold 7px monospace';
-  g.fillText('T : ARMURERIE (skins et equipement) \u00B7 H : TABLEAU DE LA CLASSE', W/2, 240);
-  g.textAlign='left';
+  g.fillStyle = 'rgba(8,10,18,0.66)'; g.fillRect(0, 0, W, H);
+  menuLogo(g);
+  var ec = menuEcran();
+  if (ec === 'perso') drawMenuPerso(g);
+  else if (ec === 'coups') drawMenuCoups(g);
+  else drawMenuListe(g, ec);
+  g.textAlign = 'left';
 }
 
 function drawGuide(g){
@@ -12415,7 +12871,8 @@ function toggleMute(){
 }
 canvas.addEventListener('click', function(e){
   if (game.aideOpen){ closeAide(); return; }
-  if (game.state==='title' || game.state==='gameover' || game.state==='victory'){ onEnter(); canvas.focus(); return; }
+  if (game.state==='title'){ menuClic(canvasLogique(e)); canvas.focus(); return; }
+  if (game.state==='gameover' || game.state==='victory'){ onEnter(); canvas.focus(); return; }
   var pt = canvasLogique(e);
   if (game.state === 'ville'){
     for (var vi = 0; vi < VILLE_SPOTS.length; vi++){
@@ -12463,6 +12920,11 @@ canvas.addEventListener('click', function(e){
   canvas.focus();
 });
 
+canvas.addEventListener('mousemove', function(e){
+  if (game.state !== 'title' || game.aideOpen) return;
+  menuSurvol(canvasLogique(e));
+});
+
 /* ---------------- API de test (jsdom) ---------------- */
 window.__crs = {
   version: '1.0.0',
@@ -12487,6 +12949,24 @@ window.__crs = {
   startWave: startWave,
   villeActiver: villeActiver,
   destinationPartir: destinationPartir,
+  menuClavier: menuClavier,
+  menuClic: menuClic,
+  menuSurvol: menuSurvol,
+  menuEcran: menuEcran,
+  menuEtat: menuEtat,
+  menuItems: menuItems,
+  menuRangY: menuRangY,
+  drawTitle: drawTitle,
+  settings: settings,
+  CHARS: CHARS,
+  DIFFS: DIFFS,
+  BTN_JOUER: BTN_JOUER,
+  BTN_RETOUR: BTN_RETOUR,
+  PERSO_X0: PERSO_X0,
+  PERSO_PAS: PERSO_PAS,
+  PERSO_Y: PERSO_Y,
+  MENU_PX: MENU_PX,
+  MENU_PW: MENU_PW,
   zonePourVague: zonePourVague,
   vagueDeZone: vagueDeZone,
   ZONES: ZONES,
